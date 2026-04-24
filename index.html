@@ -74,11 +74,12 @@ const todayKey=()=>new Date().toISOString().slice(0,10);
 
 const load=()=>{
   try{return{
-    words:    JSON.parse(localStorage.getItem("vw")||"null")||DEFAULT_WORDS,
-    progress: JSON.parse(localStorage.getItem("vp")||"{}"),
-    goals:    JSON.parse(localStorage.getItem("vg2")||"null")||DEFAULT_GOALS,
+    words:        JSON.parse(localStorage.getItem("vw")||"null")||DEFAULT_WORDS,
+    progress:     JSON.parse(localStorage.getItem("vp")||"{}"),
+    goals:        JSON.parse(localStorage.getItem("vg2")||"null")||DEFAULT_GOALS,
     activeGoalId: parseInt(localStorage.getItem("vag")||"1"),
-  };}catch{return{words:DEFAULT_WORDS,progress:{},goals:DEFAULT_GOALS,activeGoalId:1};}
+    savedAccountId: localStorage.getItem("vaccount")||null,
+  };}catch{return{words:DEFAULT_WORDS,progress:{},goals:DEFAULT_GOALS,activeGoalId:1,savedAccountId:null};}
 };
 
 const S={
@@ -172,9 +173,19 @@ function LoginScreen({onLogin}){
 
 // ── Main App ─────────────────────────────────────────────────────────────────
 function App(){
-  const [account,setAccount]=useState(null);
-  if(!account) return <LoginScreen onLogin={setAccount}/>;
-  return <Main account={account} onLogout={()=>setAccount(null)}/>;
+  const init=load();
+  const savedAcc=ACCOUNTS.find(a=>a.id===init.savedAccountId)||null;
+  const [account,setAccount]=useState(savedAcc);
+  const login=acc=>{
+    setAccount(acc);
+    try{localStorage.setItem("vaccount",acc.id);}catch{}
+  };
+  const logout=()=>{
+    setAccount(null);
+    try{localStorage.removeItem("vaccount");}catch{}
+  };
+  if(!account) return <LoginScreen onLogin={login}/>;
+  return <Main account={account} onLogout={logout}/>;
 }
 
 function Main({account,onLogout}){
@@ -395,9 +406,13 @@ function Main({account,onLogout}){
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"1.25rem",flexWrap:"wrap",gap:8}}>
         <div>
           <div style={{fontSize:20,fontWeight:700,color:"#2d6a4f"}}>🌟 Word Wizard</div>
-          <div style={{fontSize:12,color:"#aaa"}}>
+          <div style={{fontSize:12,color:"#aaa",display:"flex",alignItems:"center",gap:6}}>
             {account.emoji} {account.name}
-            <button onClick={onLogout} style={{marginLeft:10,background:"none",border:"none",cursor:"pointer",color:"#aaa",fontSize:11,textDecoration:"underline"}}>switch</button>
+            <button onClick={onLogout}
+              style={{marginLeft:4,background:"#fdeaea",border:"none",cursor:"pointer",color:"#c0392b",fontSize:11,
+                padding:"2px 8px",borderRadius:6,fontWeight:500}}>
+              🚪 Log out
+            </button>
           </div>
         </div>
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
