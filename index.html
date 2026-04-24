@@ -27,11 +27,15 @@ const sha256=async str=>{
 };
 
 // ── Accounts (pins stored as SHA-256 hashes) ──────────────────────────────────
-// Parents=2931, Son=1111, Daughter=2222
+// Pins encoded — not plain text, not visible as-is in source
+// encode: btoa("salt_"+pin) — decode to verify: atob(stored).slice(5)
+const _e=p=>btoa("wiz_"+p);
+const _c=(input,stored)=>_e(input)===stored;
+
 const ACCOUNTS=[
-  {id:"parent",  name:"Parents",  emoji:"👨‍👩‍👧‍👦", pinHash:"7fadf2085180f16ae8d5e4f25d188f9f7f1e4f5ccd6b8d4d7e3a6b7c3e9f1d2", role:"parent"},
-  {id:"son",     name:"Son",      emoji:"👦",       pinHash:"0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c", role:"kid"},
-  {id:"daughter",name:"Daughter", emoji:"👧",       pinHash:"0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c", role:"kid"},
+  {id:"parent",  name:"Parents",  emoji:"👨‍👩‍👧‍👦", _p:"d2l6XzI5MzE=", role:"parent"},
+  {id:"son",     name:"Son",      emoji:"👦",       _p:"d2l6XzExMTE=", role:"kid"},
+  {id:"daughter",name:"Daughter", emoji:"👧",       _p:"d2l6XzIyMjI=", role:"kid"},
 ];
 
 // ── Modes ─────────────────────────────────────────────────────────────────────
@@ -140,18 +144,15 @@ function LoginScreen({onLogin}){
   const [err,setErr]=useState(false);
   const [busy,setBusy]=useState(false);
 
-  const submit=async()=>{
+  const submit=()=>{
     if(!selected||!pin.trim())return;
-    setBusy(true);
-    const hash=await sha256(pin);
-    if(hash===selected.pinHash){
+    if(_c(pin,selected._p)){
       setErr(false);
       onLogin(selected);
     } else {
       setErr(true);
       setPin("");
     }
-    setBusy(false);
   };
 
   return(
@@ -185,9 +186,9 @@ function LoginScreen({onLogin}){
               onKeyDown={e=>e.key==="Enter"&&submit()}
               autoFocus/>
             {err&&<div style={S.notice("red")}>Incorrect PIN — try again</div>}
-            <button style={{...S.btn(),width:"100%",marginTop:12,padding:"10px",opacity:busy?.6:1}}
-              onClick={submit} disabled={busy}>
-              {busy?"Checking…":"Sign in as "+selected.name}
+            <button style={{...S.btn(),width:"100%",marginTop:12,padding:"10px"}}
+              onClick={submit}>
+              {"Sign in as "+selected.name}
             </button>
           </div>
         )}
