@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Word Wizard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:#f0f7f4;font-family:system-ui,sans-serif;min-height:100vh;}
+input,select,button,textarea{font-family:inherit;}
+input:focus,textarea:focus,select:focus{outline:2px solid #2d6a4f;outline-offset:1px;}
+::-webkit-scrollbar{width:6px;} ::-webkit-scrollbar-thumb{background:#c8e6c9;border-radius:3px;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useRef}=React;
+const PIN="1234";
+const DEFAULT_WORDS=[
+  {id:1,en:"cat",ru:"кошка",pl:"kot",domain:"Animals"},
+  {id:2,en:"dog",ru:"собака",pl:"pies",domain:"Animals"},
+  {id:3,en:"apple",ru:"яблоко",pl:"jabłko",domain:"Food"},
+  {id:4,en:"bread",ru:"хлеб",pl:"chleb",domain:"Food"},
+  {id:5,en:"red",ru:"красный",pl:"czerwony",domain:"Colors"},
+  {id:6,en:"blue",ru:"синий",pl:"niebieski",domain:"Colors"},
+  {id:7,en:"book",ru:"книга",pl:"książka",domain:"School"},
+  {id:8,en:"pencil",ru:"карандаш",pl:"ołówek",domain:"School"},
+];
+const DOMAINS=["Animals","Food","Colors","School","Home","Nature","Numbers","Body","Clothes","Other"];
+const WORD_SETS={
+  "Basic Animals":[{en:"horse",ru:"лошадь",pl:"koń",domain:"Animals"},{en:"rabbit",ru:"кролик",pl:"królik",domain:"Animals"},{en:"fish",ru:"рыба",pl:"ryba",domain:"Animals"},{en:"bird",ru:"птица",pl:"ptak",domain:"Animals"},{en:"cow",ru:"корова",pl:"krowa",domain:"Animals"}],
+  "Common Food":[{en:"milk",ru:"молоко",pl:"mleko",domain:"Food"},{en:"egg",ru:"яйцо",pl:"jajko",domain:"Food"},{en:"cheese",ru:"сыр",pl:"ser",domain:"Food"},{en:"water",ru:"вода",pl:"woda",domain:"Food"},{en:"banana",ru:"банан",pl:"banan",domain:"Food"}],
+  "Numbers 1-5":[{en:"one",ru:"один",pl:"jeden",domain:"Numbers"},{en:"two",ru:"два",pl:"dwa",domain:"Numbers"},{en:"three",ru:"три",pl:"trzy",domain:"Numbers"},{en:"four",ru:"четыре",pl:"cztery",domain:"Numbers"},{en:"five",ru:"пять",pl:"pięć",domain:"Numbers"}],
+  "Body Parts":[{en:"head",ru:"голова",pl:"głowa",domain:"Body"},{en:"hand",ru:"рука",pl:"ręka",domain:"Body"},{en:"eye",ru:"глаз",pl:"oko",domain:"Body"},{en:"nose",ru:"нос",pl:"nos",domain:"Body"},{en:"mouth",ru:"рот",pl:"usta",domain:"Body"}],
+  "Colors":[{en:"green",ru:"зелёный",pl:"zielony",domain:"Colors"},{en:"yellow",ru:"жёлтый",pl:"żółty",domain:"Colors"},{en:"white",ru:"белый",pl:"biały",domain:"Colors"},{en:"black",ru:"чёрный",pl:"czarny",domain:"Colors"},{en:"pink",ru:"розовый",pl:"różowy",domain:"Colors"}],
+};
+const todayKey=()=>new Date().toISOString().slice(0,10);
+const load=()=>{try{return{words:JSON.parse(localStorage.getItem("vw")||"null")||DEFAULT_WORDS,progress:JSON.parse(localStorage.getItem("vp")||"{}"),goals:JSON.parse(localStorage.getItem("vg")||"null")||{daily:10,kid:"My Kid"}};}catch{return{words:DEFAULT_WORDS,progress:{},goals:{daily:10,kid:"My Kid"}};}};
+
+const S={
+  wrap:{maxWidth:680,margin:"0 auto",padding:"1rem"},
+  card:{background:"#fff",borderRadius:14,border:"1px solid #e0e0e0",padding:"1.25rem",marginBottom:"1rem"},
+  btn:(bg="#2d6a4f",light=false)=>({padding:"8px 18px",borderRadius:9,border:"none",cursor:"pointer",fontSize:13,fontWeight:500,background:light?"#eaf4ee":bg,color:light?bg:"#fff"}),
+  input:{padding:"8px 11px",borderRadius:8,border:"1px solid #ccc",fontSize:13,width:"100%"},
+  label:{fontSize:11,color:"#888",marginBottom:3,display:"block",fontWeight:600,letterSpacing:.4,textTransform:"uppercase"},
+  sel:{padding:"7px 10px",borderRadius:8,border:"1px solid #ccc",fontSize:13,background:"#fff"},
+  tag:(c="#2d6a4f")=>({fontSize:11,fontWeight:600,background:c+"22",color:c,padding:"2px 9px",borderRadius:20,display:"inline-block"}),
+  tabBar:{display:"flex",gap:0,marginBottom:"1.25rem",borderBottom:"2px solid #e8f5ee",flexWrap:"wrap"},
+  tab:(a)=>({padding:"8px 14px",border:"none",cursor:"pointer",fontSize:12,fontWeight:500,background:"none",borderBottom:a?"3px solid #2d6a4f":"3px solid transparent",color:a?"#2d6a4f":"#999",marginBottom:-2,whiteSpace:"nowrap"}),
+  textarea:{padding:"8px 11px",borderRadius:8,border:"1px solid #ccc",fontSize:13,width:"100%",resize:"vertical",minHeight:100},
+  notice:(c="green")=>({fontSize:12,padding:"8px 12px",borderRadius:8,background:c==="green"?"#e8f5ee":c==="red"?"#fdeaea":"#fff8e1",color:c==="green"?"#2d6a4f":c==="red"?"#c0392b":"#b7791f",marginTop:8}),
+};
+
+function PreviewTable({words,onConfirm,onDiscard,confirmLabel="Add all to my list"}){
+  return(
+    <div>
+      <div style={{background:"#f9fafb",borderRadius:10,padding:"10px 14px",marginBottom:10,maxHeight:220,overflowY:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+          <thead><tr style={{color:"#888",textAlign:"left"}}>
+            <th style={{padding:"3px 8px 6px 0"}}>English</th>
+            <th style={{padding:"3px 8px 6px 0"}}>Russian</th>
+            <th style={{padding:"3px 8px 6px 0"}}>Polish</th>
+            <th style={{padding:"3px 0 6px 0"}}>Domain</th>
+          </tr></thead>
+          <tbody>{words.map((w,i)=>(
+            <tr key={i} style={{borderTop:"1px solid #f0f0f0"}}>
+              <td style={{padding:"3px 8px 3px 0",fontWeight:600,color:"#1b4332"}}>{w.en}</td>
+              <td style={{padding:"3px 8px 3px 0",color:"#555"}}>{w.ru}</td>
+              <td style={{padding:"3px 8px 3px 0",color:"#555"}}>{w.pl}</td>
+              <td style={{padding:"3px 0"}}><span style={S.tag()}>{w.domain}</span></td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
+      <div style={{display:"flex",gap:8}}>
+        <button style={S.btn()} onClick={onConfirm}>{confirmLabel}</button>
+        <button style={{...S.btn("#888",true),background:"#f5f5f5",color:"#888"}} onClick={onDiscard}>Discard</button>
+      </div>
+    </div>
+  );
+}
+
+function App(){
+  const init=load();
+  const [words,setWordsRaw]=useState(init.words);
+  const [progress,setProgressRaw]=useState(init.progress);
+  const [goals,setGoalsRaw]=useState(init.goals);
+  const [view,setView]=useState("home");
+  const [parentTab,setParentTab]=useState("add");
+  const [pinUnlocked,setPinUnlocked]=useState(false);
+  const [pin,setPin]=useState("");
+  const [pinErr,setPinErr]=useState(false);
+  const [lang,setLang]=useState("ru");
+  const [domain,setDomain]=useState("All");
+  const [quiz,setQuiz]=useState(null);
+  const [answer,setAnswer]=useState("");
+  const [feedback,setFeedback]=useState(null);
+  const [nw,setNw]=useState({en:"",ru:"",pl:"",domain:"Animals"});
+  const [nwErr,setNwErr]=useState("");
+  const [importSet,setImportSet]=useState(Object.keys(WORD_SETS)[0]);
+  const [importMsg,setImportMsg]=useState("");
+  const [aiTopic,setAiTopic]=useState("");
+  const [aiLoading,setAiLoading]=useState(false);
+  const [aiMsg,setAiMsg]=useState("");
+  const [aiPreview,setAiPreview]=useState([]);
+  // TXT upload
+  const [txtPreview,setTxtPreview]=useState([]);
+  const [txtMsg,setTxtMsg]=useState("");
+  const [txtDomain,setTxtDomain]=useState("Other");
+  const fileRef=useRef();
+  // URL extract
+  const [urlInput,setUrlInput]=useState("");
+  const [urlLoading,setUrlLoading]=useState(false);
+  const [urlMsg,setUrlMsg]=useState("");
+  const [urlPreview,setUrlPreview]=useState([]);
+  // word list
+  const [editWord,setEditWord]=useState(null);
+  const [filterDomain,setFilterDomain]=useState("All");
+  const [editGoal,setEditGoal]=useState(false);
+  const [tGoal,setTGoal]=useState(goals.daily);
+  const [tKid,setTKid]=useState(goals.kid);
+  // export/import
+  const [importJsonMsg,setImportJsonMsg]=useState("");
+  const jsonFileRef=useRef();
+
+  const setW=w=>{setWordsRaw(w);try{localStorage.setItem("vw",JSON.stringify(w));}catch{}};
+  const setP=p=>{setProgressRaw(p);try{localStorage.setItem("vp",JSON.stringify(p));}catch{}};
+  const setG=g=>{setGoalsRaw(g);try{localStorage.setItem("vg",JSON.stringify(g));}catch{}};
+
+  const todayCount=progress[todayKey()]||0;
+  const pct=Math.min(100,Math.round(todayCount/goals.daily*100));
+  const goalDone=todayCount>=goals.daily;
+  const usedDomains=["All",...Array.from(new Set(words.map(w=>w.domain)))];
+
+  const mergeWords=(newList)=>{
+    const existing=new Set(words.map(w=>w.en.toLowerCase()));
+    const toAdd=newList.filter(w=>w.en&&!existing.has(w.en.toLowerCase()));
+    if(!toAdd.length) return 0;
+    setW([...words,...toAdd.map((w,i)=>({...w,id:Date.now()+i}))]);
+    return toAdd.length;
+  };
+
+  const startQuiz=(d=domain)=>{
+    const pool=d==="All"?words:words.filter(w=>w.domain===d);
+    if(!pool.length){setQuiz(null);return;}
+    setQuiz(pool[Math.floor(Math.random()*pool.length)]);
+    setAnswer("");setFeedback(null);
+  };
+  const checkAnswer=()=>{
+    if(!quiz||!answer.trim())return;
+    const ok=answer.trim().toLowerCase()===quiz.en.toLowerCase();
+    setFeedback(ok?"correct":"wrong");
+    if(ok){const k=todayKey();const p2={...progress,[k]:(progress[k]||0)+1};setP(p2);}
+  };
+
+  // ── TXT upload ──────────────────────────────────────────
+  const parseLinesIntoWords=(rawText)=>{
+    // strip RTF control words if present
+    let text=rawText;
+    if(text.trimStart().startsWith("{\\rtf")){
+      text=text
+        .replace(/\{\\rtf[\s\S]*?\\pard/,"")   // header
+        .replace(/\{[^}]*\}/g,"")               // groups
+        .replace(/\\[a-z]+\-?\d*\s?/g,"")       // control words
+        .replace(/[{}\\]/g,"");                  // leftover
+    }
+    // strip Markdown formatting (bold, italic, headers, list markers)
+    text=text
+      .replace(/^#{1,6}\s+/gm,"")
+      .replace(/[*_`~]+/g,"")
+      .replace(/^\s*[-*+]\s+/gm,"")
+      .replace(/^\s*\d+\.\s+/gm,"");
+    const lines=text.split("\n").map(l=>l.trim()).filter(Boolean);
+    const parsed=[];const errors=[];
+    lines.forEach((line,i)=>{
+      const parts=line.split(/\t|  +/).map(p=>p.trim()).filter(Boolean);
+      if(parts.length>=3) parsed.push({en:parts[0],ru:parts[1],pl:parts[2],domain:txtDomain});
+      else if(parts.length>0) errors.push(i+1);
+    });
+    return {parsed,errors};
+  };
+
+  const handleTxtFile=e=>{
+    const file=e.target.files[0];
+    if(!file){setTxtMsg("No file selected.");return;}
+    setTxtMsg("Reading file…");
+    const reader=new FileReader();
+    reader.onerror=()=>setTxtMsg("Error reading file. Try again.");
+    reader.onload=ev=>{
+      try{
+        const raw=ev.target.result;
+        const {parsed,errors}=parseLinesIntoWords(raw);
+        if(!parsed.length){
+          setTxtMsg("No valid lines found. Expected format: English[TAB]Russian[TAB]Polish");
+          setTxtPreview([]);
+          return;
+        }
+        setTxtPreview([...parsed]);
+        setTxtMsg(errors.length
+          ?`Parsed ${parsed.length} words. Skipped lines: ${errors.join(", ")}.`
+          :`Parsed ${parsed.length} words — review below and click "Add all to my list".`);
+      }catch(err){
+        setTxtMsg("Parse error: "+err.message);
+      }
+    };
+    reader.readAsText(file,"UTF-8");
+    e.target.value="";
+  };
+  const confirmTxt=()=>{
+    const n=mergeWords([...txtPreview]);
+    setTxtMsg(`Added ${n} new word${n!==1?"s":""}!`);
+    setTxtPreview([]);
+  };
+
+  // ── URL extract ─────────────────────────────────────────
+  const extractFromUrl=async()=>{
+    if(!urlInput.trim())return;
+    setUrlLoading(true);setUrlMsg("Fetching page and extracting words…");setUrlPreview([]);
+    try{
+      // Use AI to fetch+parse — we pass the URL and ask AI to fetch it via tool or just parse based on URL
+      const res=await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          model:"claude-sonnet-4-20250514",max_tokens:2000,
+          tools:[{type:"web_search_20250305",name:"web_search"}],
+          messages:[{role:"user",content:`Visit this URL and extract all vocabulary words with their English, Russian, and Polish translations: ${urlInput}\n\nIf the page is not in English/Russian/Polish, translate the words yourself.\nIf translations are missing, generate them.\nAssign each word a domain from: ${DOMAINS.join(", ")}.\n\nRespond ONLY with a raw JSON array (no markdown, no explanation):\n[{"en":"word","ru":"перевод","pl":"tłumaczenie","domain":"Category"}]\n\nExtract as many words as possible, minimum 5.`}]
+        })
+      });
+      const data=await res.json();
+      const textBlock=data.content?.filter(b=>b.type==="text").map(b=>b.text).join("");
+      const clean=textBlock.replace(/```json|```/g,"").trim();
+      const match=clean.match(/\[[\s\S]*\]/);
+      if(!match) throw new Error("No JSON found");
+      const parsed=JSON.parse(match[0]);
+      if(Array.isArray(parsed)&&parsed.length){
+        setUrlPreview(parsed);
+        setUrlMsg(`Extracted ${parsed.length} words. Review and add below.`);
+      } else setUrlMsg("Could not extract words from this page. Try another URL.");
+    }catch(e){
+      setUrlMsg("Failed to extract words. Make sure the URL is a vocabulary/word list page.");
+    }
+    setUrlLoading(false);
+  };
+  const confirmUrl=()=>{
+    const n=mergeWords(urlPreview);
+    setUrlMsg(`Added ${n} new word${n!==1?"s":""}!`);
+    setUrlPreview([]);setUrlInput("");
+  };
+
+  // ── AI generate ─────────────────────────────────────────
+  const generateWithAI=async()=>{
+    if(!aiTopic.trim())return;
+    setAiLoading(true);setAiMsg("");setAiPreview([]);
+    try{
+      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,
+          messages:[{role:"user",content:`Generate exactly 8 English vocabulary words on the topic: "${aiTopic}". For each word provide English, Russian translation, Polish translation, and a domain from: ${DOMAINS.join(", ")}.\nRespond ONLY with a raw JSON array, no markdown:\n[{"en":"word","ru":"слово","pl":"słowo","domain":"Category"}]`}]})});
+      const data=await res.json();
+      const text=data.content?.find(b=>b.type==="text")?.text||"";
+      const parsed=JSON.parse(text.replace(/```json|```/g,"").trim());
+      if(Array.isArray(parsed)&&parsed.length){setAiPreview(parsed);setAiMsg(`${parsed.length} words generated!`);}
+      else setAiMsg("Could not parse response. Try again.");
+    }catch{setAiMsg("Error. Please try again.");}
+    setAiLoading(false);
+  };
+  const confirmAi=()=>{
+    const n=mergeWords(aiPreview);
+    setAiMsg(`Added ${n} word${n!==1?"s":""}!`);
+    setAiPreview([]);setAiTopic("");
+  };
+
+  // ── Export / Import JSON ─────────────────────────────────
+  const exportJSON=()=>{
+    const data=JSON.stringify({words,goals,exportedAt:new Date().toISOString()},null,2);
+    const blob=new Blob([data],{type:"application/json"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url;a.download="wordwizard-backup.json";a.click();
+    URL.revokeObjectURL(url);
+  };
+  const handleImportJSON=e=>{
+    const file=e.target.files[0];if(!file)return;
+    const reader=new FileReader();
+    reader.onload=ev=>{
+      try{
+        const data=JSON.parse(ev.target.result);
+        if(!Array.isArray(data.words)) throw new Error("Invalid format");
+        setW(data.words);
+        if(data.goals) setG(data.goals);
+        setImportJsonMsg(`Restored ${data.words.length} words successfully!`);
+        setTimeout(()=>setImportJsonMsg(""),4000);
+      }catch{setImportJsonMsg("Invalid backup file. Please use a file exported from Word Wizard.");}
+    };
+    reader.readAsText(file);
+    e.target.value="";
+  };
+
+  const addWord=()=>{
+    if(!nw.en.trim()||!nw.ru.trim()||!nw.pl.trim()){setNwErr("Please fill all three fields.");return;}
+    setW([...words,{...nw,id:Date.now(),en:nw.en.trim(),ru:nw.ru.trim(),pl:nw.pl.trim()}]);
+    setNw({en:"",ru:"",pl:"",domain:nw.domain});setNwErr("");
+  };
+  const importWordSet=()=>{
+    const n=mergeWords(WORD_SETS[importSet]);
+    if(!n){setImportMsg("All words already in your list.");return;}
+    setImportMsg(`Added ${n} word${n>1?"s":""}!`);setTimeout(()=>setImportMsg(""),3000);
+  };
+  const deleteWord=id=>setW(words.filter(w=>w.id!==id));
+  const saveEdit=()=>{setW(words.map(w=>w.id===editWord.id?editWord:w));setEditWord(null);};
+  const saveGoal=()=>{const g={daily:parseInt(tGoal)||10,kid:tKid||"My Kid"};setG(g);setEditGoal(false);};
+  const tryPin=()=>{if(pin===PIN){setPinUnlocked(true);setPinErr(false);setPin("");}else{setPinErr(true);setPin("");}};
+
+  if(view==="parent"&&!pinUnlocked) return(
+    <div style={S.wrap}>
+      <button style={{...S.btn("#888",true),marginBottom:"1.5rem",background:"#f5f5f5",color:"#888"}} onClick={()=>setView("home")}>← Back</button>
+      <div style={{...S.card,maxWidth:320,margin:"2rem auto"}}>
+        <div style={{fontSize:17,fontWeight:600,color:"#2d6a4f",marginBottom:12}}>Parent Panel</div>
+        <label style={S.label}>Enter PIN</label>
+        <input style={S.input} type="password" value={pin} placeholder="Default: 1234" maxLength={6} onChange={e=>setPin(e.target.value)} onKeyDown={e=>e.key==="Enter"&&tryPin()}/>
+        {pinErr&&<div style={{color:"#e74c3c",fontSize:12,marginTop:5}}>Incorrect PIN</div>}
+        <button style={{...S.btn(),marginTop:12,width:"100%"}} onClick={tryPin}>Unlock</button>
+      </div>
+    </div>
+  );
+
+  return(
+    <div style={S.wrap}>
+      {/* Nav */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"1.25rem",flexWrap:"wrap",gap:8}}>
+        <div>
+          <div style={{fontSize:20,fontWeight:700,color:"#2d6a4f"}}>🌟 Word Wizard</div>
+          <div style={{fontSize:12,color:"#aaa"}}>Learning English — {goals.kid}</div>
+        </div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {["home","practice","words","parent"].map(v=>(
+            <button key={v} style={{padding:"6px 13px",borderRadius:20,border:"none",cursor:"pointer",fontSize:12,fontWeight:500,background:view===v?"#2d6a4f":"#eaf4ee",color:view===v?"#fff":"#2d6a4f"}}
+              onClick={()=>{setView(v);if(v==="practice")startQuiz();}}>
+              {v==="home"?"🏠":v==="practice"?"✏️":v==="words"?"📚":"⚙️"} {v.charAt(0).toUpperCase()+v.slice(1)}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* HOME */}
+      {view==="home"&&(
+        <div>
+          <div style={S.card}>
+            <div style={{fontSize:13,color:"#666",marginBottom:6}}>Today's goal — <strong>{goals.kid}</strong></div>
+            <div style={{display:"flex",alignItems:"baseline",gap:8}}>
+              <span style={{fontSize:30,fontWeight:700,color:goalDone?"#52b788":"#2d6a4f"}}>{todayCount}</span>
+              <span style={{color:"#aaa"}}>/ {goals.daily} words</span>
+              {goalDone&&<span>🎉</span>}
+            </div>
+            <div style={{height:10,borderRadius:5,background:"#e0e0e0",overflow:"hidden",marginTop:8}}>
+              <div style={{height:"100%",borderRadius:5,background:goalDone?"#52b788":"#2d6a4f",width:pct+"%",transition:"width .4s"}}/>
+            </div>
+            {goalDone&&<div style={{color:"#52b788",fontSize:13,marginTop:8,fontWeight:500}}>Goal completed! Amazing work!</div>}
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:"1rem"}}>
+            {[["📚",words.length,"Total words"],["🗂️",Array.from(new Set(words.map(w=>w.domain))).length,"Domains"],["🔥",todayCount,"Today"]].map(([icon,n,label])=>(
+              <div key={label} style={{...S.card,margin:0,textAlign:"center",padding:"1rem"}}>
+                <div style={{fontSize:22}}>{icon}</div>
+                <div style={{fontSize:24,fontWeight:700,color:"#2d6a4f"}}>{n}</div>
+                <div style={{fontSize:11,color:"#aaa"}}>{label}</div>
+              </div>
+            ))}
+          </div>
+          <button style={{...S.btn(),width:"100%",padding:"13px",fontSize:15,borderRadius:13}} onClick={()=>{setView("practice");startQuiz();}}>Start Practice →</button>
+        </div>
+      )}
+
+      {/* PRACTICE */}
+      {view==="practice"&&(
+        <div>
+          <div style={{display:"flex",gap:10,marginBottom:"1rem",flexWrap:"wrap",alignItems:"center"}}>
+            <div><span style={{fontSize:12,color:"#888",marginRight:6}}>Show in:</span>
+              <select style={S.sel} value={lang} onChange={e=>setLang(e.target.value)}>
+                <option value="ru">Russian</option><option value="pl">Polish</option>
+              </select>
+            </div>
+            <div><span style={{fontSize:12,color:"#888",marginRight:6}}>Domain:</span>
+              <select style={S.sel} value={domain} onChange={e=>{setDomain(e.target.value);startQuiz(e.target.value);}}>
+                {usedDomains.map(d=><option key={d}>{d}</option>)}
+              </select>
+            </div>
+          </div>
+          {quiz?(
+            <div style={S.card}>
+              <div style={S.tag()}>{quiz.domain}</div>
+              <div style={{fontSize:38,fontWeight:700,textAlign:"center",color:"#1b4332",margin:"1.5rem 0 .5rem"}}>{lang==="ru"?quiz.ru:quiz.pl}</div>
+              <div style={{textAlign:"center",fontSize:13,color:"#aaa",marginBottom:"1.25rem"}}>Type the English word</div>
+              <input style={{...S.input,fontSize:22,textAlign:"center",padding:12,borderRadius:12,border:`2px solid ${feedback==="correct"?"#52b788":feedback==="wrong"?"#e74c3c":"#ccc"}`}}
+                value={answer} onChange={e=>setAnswer(e.target.value)}
+                onKeyDown={e=>{if(e.key==="Enter")feedback?startQuiz():checkAnswer();}}
+                disabled={!!feedback} autoFocus placeholder="English word…"/>
+              {feedback==="correct"&&<div style={{textAlign:"center",color:"#52b788",fontWeight:600,fontSize:16,marginTop:10}}>✓ Correct!</div>}
+              {feedback==="wrong"&&<div style={{textAlign:"center",color:"#e74c3c",fontSize:15,marginTop:10}}>✗ Answer: <strong>{quiz.en}</strong></div>}
+              <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"center"}}>
+                {!feedback&&<button style={S.btn()} onClick={checkAnswer}>Check</button>}
+                {feedback&&<button style={S.btn()} onClick={()=>startQuiz()}>Next word →</button>}
+              </div>
+            </div>
+          ):<div style={{...S.card,textAlign:"center",color:"#aaa"}}>No words in this domain yet.</div>}
+          <div style={S.card}>
+            <div style={{fontSize:13,color:"#555"}}>Today: <strong style={{color:"#2d6a4f"}}>{todayCount}</strong> / {goals.daily} {goalDone?"🎉":""}</div>
+            <div style={{height:8,borderRadius:4,background:"#e0e0e0",overflow:"hidden",marginTop:6}}>
+              <div style={{height:"100%",borderRadius:4,background:goalDone?"#52b788":"#2d6a4f",width:pct+"%"}}/>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* WORDS */}
+      {view==="words"&&(
+        <div>
+          <div style={{display:"flex",gap:8,marginBottom:10,alignItems:"center"}}>
+            <select style={S.sel} value={filterDomain} onChange={e=>setFilterDomain(e.target.value)}>
+              {usedDomains.map(d=><option key={d}>{d}</option>)}
+            </select>
+            <span style={{fontSize:12,color:"#aaa"}}>{(filterDomain==="All"?words:words.filter(w=>w.domain===filterDomain)).length} words</span>
+          </div>
+          {(filterDomain==="All"?words:words.filter(w=>w.domain===filterDomain)).map(w=>(
+            <div key={w.id} style={{...S.card,padding:"10px 14px",marginBottom:8}}>
+              {editWord?.id===w.id?(
+                <div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:6}}>
+                    <input style={S.input} value={editWord.en} onChange={e=>setEditWord({...editWord,en:e.target.value})} placeholder="English"/>
+                    <input style={S.input} value={editWord.ru} onChange={e=>setEditWord({...editWord,ru:e.target.value})} placeholder="Russian"/>
+                    <input style={S.input} value={editWord.pl} onChange={e=>setEditWord({...editWord,pl:e.target.value})} placeholder="Polish"/>
+                  </div>
+                  <div style={{display:"flex",gap:6}}>
+                    <select style={S.sel} value={editWord.domain} onChange={e=>setEditWord({...editWord,domain:e.target.value})}>
+                      {DOMAINS.map(d=><option key={d}>{d}</option>)}
+                    </select>
+                    <button style={S.btn()} onClick={saveEdit}>Save</button>
+                    <button style={{...S.btn("#888",true),background:"#f5f5f5",color:"#888"}} onClick={()=>setEditWord(null)}>Cancel</button>
+                  </div>
+                </div>
+              ):(
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontWeight:600,color:"#1b4332",minWidth:80}}>{w.en}</span>
+                  <span style={{color:"#555",fontSize:13,flex:1}}>{w.ru} / {w.pl}</span>
+                  <span style={S.tag()}>{w.domain}</span>
+                  <button style={{background:"none",border:"none",cursor:"pointer",color:"#bbb",fontSize:14}} onClick={()=>setEditWord(w)}>✏️</button>
+                  <button style={{background:"none",border:"none",cursor:"pointer",color:"#e74c3c",fontSize:14}} onClick={()=>deleteWord(w.id)}>✕</button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* PARENT */}
+      {view==="parent"&&pinUnlocked&&(
+        <div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"1rem"}}>
+            <div style={{fontSize:16,fontWeight:600,color:"#2d6a4f"}}>⚙️ Parent Panel</div>
+            <button style={{...S.btn("#888",true),background:"#f5f5f5",color:"#999",fontSize:12}} onClick={()=>{setPinUnlocked(false);setView("home");}}>🔒 Lock</button>
+          </div>
+          <div style={S.tabBar}>
+            {[["add","➕ Manual"],["txt","📄 TXT file"],["url","🌐 From URL"],["sets","📦 Word sets"],["ai","🤖 AI"],["backup","💾 Backup"],["goals","🎯 Goals"]].map(([t,label])=>(
+              <button key={t} style={S.tab(parentTab===t)} onClick={()=>setParentTab(t)}>{label}</button>
+            ))}
+          </div>
+
+          {/* MANUAL */}
+          {parentTab==="add"&&(
+            <div style={S.card}>
+              <div style={{fontWeight:600,marginBottom:14}}>Add a word manually</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:10}}>
+                <div><label style={S.label}>English</label><input style={S.input} value={nw.en} onChange={e=>setNw({...nw,en:e.target.value})} placeholder="e.g. tree" onKeyDown={e=>e.key==="Enter"&&addWord()}/></div>
+                <div><label style={S.label}>Russian</label><input style={S.input} value={nw.ru} onChange={e=>setNw({...nw,ru:e.target.value})} placeholder="e.g. дерево" onKeyDown={e=>e.key==="Enter"&&addWord()}/></div>
+                <div><label style={S.label}>Polish</label><input style={S.input} value={nw.pl} onChange={e=>setNw({...nw,pl:e.target.value})} placeholder="e.g. drzewo" onKeyDown={e=>e.key==="Enter"&&addWord()}/></div>
+              </div>
+              <div style={{display:"flex",gap:10,alignItems:"flex-end"}}>
+                <div style={{flex:1}}><label style={S.label}>Domain</label>
+                  <select style={{...S.sel,width:"100%"}} value={nw.domain} onChange={e=>setNw({...nw,domain:e.target.value})}>
+                    {DOMAINS.map(d=><option key={d}>{d}</option>)}
+                  </select>
+                </div>
+                <button style={{...S.btn(),padding:"8px 24px"}} onClick={addWord}>Add word</button>
+              </div>
+              {nwErr&&<div style={S.notice("red")}>{nwErr}</div>}
+            </div>
+          )}
+
+          {/* TXT FILE */}
+          {parentTab==="txt"&&(
+            <div style={S.card}>
+              <div style={{fontWeight:600,marginBottom:6}}>Upload from TXT file</div>
+              <div style={{fontSize:12,color:"#888",marginBottom:12,lineHeight:1.6}}>
+                Supported formats: <strong>TXT, RTF, MD</strong>. Each line: <code style={{background:"#f0f7f0",padding:"1px 5px",borderRadius:4}}>English  Russian  Polish</code> (tab or 2+ spaces).<br/>
+                Example: <code style={{background:"#f0f7f0",padding:"1px 5px",borderRadius:4}}>tree  дерево  drzewo</code><br/>
+                RTF and Markdown formatting is stripped automatically.
+              </div>
+              <div style={{marginBottom:10}}>
+                <label style={S.label}>Default domain for these words</label>
+                <select style={{...S.sel}} value={txtDomain} onChange={e=>setTxtDomain(e.target.value)}>
+                  {DOMAINS.map(d=><option key={d}>{d}</option>)}
+                </select>
+              </div>
+              <input ref={fileRef} type="file" accept=".txt,.rtf,.md,.markdown" style={{display:"none"}} onChange={handleTxtFile}/>
+              <button style={S.btn()} onClick={()=>fileRef.current.click()}>📄 Choose file (TXT / RTF / MD)</button>
+              {txtMsg&&<div style={S.notice(txtMsg.includes("Added")?"green":"blue")}>{txtMsg}</div>}
+              {txtPreview.length>0&&(
+                <div style={{marginTop:12}}>
+                  <PreviewTable words={txtPreview} onConfirm={confirmTxt} onDiscard={()=>{setTxtPreview([]);setTxtMsg("");}}/>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* URL */}
+          {parentTab==="url"&&(
+            <div style={S.card}>
+              <div style={{fontWeight:600,marginBottom:6}}>Extract words from a URL</div>
+              <div style={{fontSize:12,color:"#888",marginBottom:12,lineHeight:1.6}}>
+                Paste the URL of any vocabulary page (e.g. a word list, flashcard site, or language learning page). AI will fetch and extract the words automatically.
+              </div>
+              <label style={S.label}>URL</label>
+              <input style={{...S.input,marginBottom:10}} value={urlInput} onChange={e=>setUrlInput(e.target.value)} placeholder="https://example.com/english-vocabulary-list" onKeyDown={e=>e.key==="Enter"&&extractFromUrl()}/>
+              <button style={{...S.btn(),opacity:urlLoading?.6:1}} onClick={extractFromUrl} disabled={urlLoading}>
+                {urlLoading?"🔍 Extracting…":"🌐 Extract words"}
+              </button>
+              {urlMsg&&<div style={S.notice(urlMsg.includes("Extracted")||urlMsg.includes("Added")?"green":"red")}>{urlMsg}</div>}
+              {urlPreview.length>0&&(
+                <div style={{marginTop:12}}>
+                  <PreviewTable words={urlPreview} onConfirm={confirmUrl} onDiscard={()=>{setUrlPreview([]);setUrlMsg("");}}/>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* WORD SETS */}
+          {parentTab==="sets"&&(
+            <div style={S.card}>
+              <div style={{fontWeight:600,marginBottom:6}}>Import built-in word sets</div>
+              <label style={S.label}>Choose set</label>
+              <select style={{...S.sel,width:"100%",marginBottom:10}} value={importSet} onChange={e=>setImportSet(e.target.value)}>
+                {Object.keys(WORD_SETS).map(k=><option key={k}>{k}</option>)}
+              </select>
+              <div style={{background:"#f9fafb",borderRadius:10,padding:"10px 14px",marginBottom:12}}>
+                {WORD_SETS[importSet].map(w=>(
+                  <div key={w.en} style={{fontSize:13,padding:"3px 0",color:"#444"}}>
+                    <strong>{w.en}</strong> — {w.ru} / {w.pl} <span style={{color:"#aaa",fontSize:11}}>({w.domain})</span>
+                  </div>
+                ))}
+              </div>
+              <button style={S.btn()} onClick={importWordSet}>Import these words</button>
+              {importMsg&&<div style={S.notice("green")}>{importMsg}</div>}
+            </div>
+          )}
+
+          {/* AI */}
+          {parentTab==="ai"&&(
+            <div style={S.card}>
+              <div style={{fontWeight:600,marginBottom:6}}>Generate words with AI</div>
+              <div style={{fontSize:12,color:"#888",marginBottom:12}}>Type any topic and AI generates 8 words with Russian and Polish translations.</div>
+              <label style={S.label}>Topic</label>
+              <input style={{...S.input,marginBottom:10}} value={aiTopic} onChange={e=>setAiTopic(e.target.value)} placeholder="e.g. weather, sports, kitchen…" onKeyDown={e=>e.key==="Enter"&&generateWithAI()}/>
+              <button style={{...S.btn(),opacity:aiLoading?.6:1}} onClick={generateWithAI} disabled={aiLoading}>
+                {aiLoading?"Generating…":"🤖 Generate 8 words"}
+              </button>
+              {aiMsg&&<div style={S.notice(aiMsg.includes("generated")||aiMsg.includes("Added")?"green":"red")}>{aiMsg}</div>}
+              {aiPreview.length>0&&(
+                <div style={{marginTop:12}}>
+                  <PreviewTable words={aiPreview} onConfirm={confirmAi} onDiscard={()=>{setAiPreview([]);setAiMsg("");}}/>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* BACKUP */}
+          {parentTab==="backup"&&(
+            <div style={S.card}>
+              <div style={{fontWeight:600,marginBottom:6}}>Backup & restore</div>
+              <div style={{fontSize:12,color:"#888",marginBottom:16,lineHeight:1.6}}>
+                Export your word list as a JSON file to back it up or transfer to another device. Import a previously exported file to restore.
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                <div style={{...S.card,margin:0,background:"#f9fafb",border:"1px solid #e8f5ee"}}>
+                  <div style={{fontWeight:500,marginBottom:4,fontSize:13}}>📤 Export</div>
+                  <div style={{fontSize:12,color:"#888",marginBottom:10}}>Downloads <strong>wordwizard-backup.json</strong> with all {words.length} words and settings.</div>
+                  <button style={S.btn()} onClick={exportJSON}>Download backup file</button>
+                </div>
+                <div style={{...S.card,margin:0,background:"#f9fafb",border:"1px solid #e8f5ee"}}>
+                  <div style={{fontWeight:500,marginBottom:4,fontSize:13}}>📥 Import</div>
+                  <div style={{fontSize:12,color:"#888",marginBottom:10}}>Restore from a previously exported <strong>wordwizard-backup.json</strong> file. This will replace your current word list.</div>
+                  <input ref={jsonFileRef} type="file" accept=".json" style={{display:"none"}} onChange={handleImportJSON}/>
+                  <button style={{...S.btn("#c0392b")}} onClick={()=>jsonFileRef.current.click()}>📥 Restore from backup</button>
+                  {importJsonMsg&&<div style={S.notice(importJsonMsg.includes("success")?"green":"red")}>{importJsonMsg}</div>}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* GOALS */}
+          {parentTab==="goals"&&(
+            <div style={S.card}>
+              <div style={{fontWeight:600,marginBottom:14}}>Goals & settings</div>
+              {editGoal?(
+                <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                  <div><label style={S.label}>Kid's name</label><input style={S.input} value={tKid} onChange={e=>setTKid(e.target.value)}/></div>
+                  <div><label style={S.label}>Daily correct answers goal</label><input style={S.input} type="number" min="1" max="200" value={tGoal} onChange={e=>setTGoal(e.target.value)}/></div>
+                  <div style={{display:"flex",gap:8}}>
+                    <button style={S.btn()} onClick={saveGoal}>Save</button>
+                    <button style={{...S.btn("#888",true),background:"#f5f5f5",color:"#888"}} onClick={()=>setEditGoal(false)}>Cancel</button>
+                  </div>
+                </div>
+              ):(
+                <div>
+                  <div style={{fontSize:14,color:"#444",marginBottom:10}}>Kid: <strong>{goals.kid}</strong><br/>Daily goal: <strong>{goals.daily} correct answers</strong></div>
+                  <button style={S.btn()} onClick={()=>{setEditGoal(true);setTGoal(goals.daily);setTKid(goals.kid);}}>Edit goals</button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
