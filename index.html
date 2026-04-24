@@ -12,7 +12,7 @@
 body{background:#f0f7f4;font-family:system-ui,sans-serif;min-height:100vh;}
 input,select,button,textarea{font-family:inherit;}
 input:focus,textarea:focus,select:focus{outline:2px solid #2d6a4f;outline-offset:1px;}
-::-webkit-scrollbar{width:6px;} ::-webkit-scrollbar-thumb{background:#c8e6c9;border-radius:3px;}
+::-webkit-scrollbar{width:6px;}::-webkit-scrollbar-thumb{background:#c8e6c9;border-radius:3px;}
 </style>
 </head>
 <body>
@@ -20,13 +20,21 @@ input:focus,textarea:focus,select:focus{outline:2px solid #2d6a4f;outline-offset
 <script type="text/babel">
 const {useState,useRef}=React;
 
-// ── Accounts ────────────────────────────────────────────────────────────────
+// ── SHA-256 helper ────────────────────────────────────────────────────────────
+const sha256=async str=>{
+  const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+};
+
+// ── Accounts (pins stored as SHA-256 hashes) ──────────────────────────────────
+// Parents=2931, Son=1111, Daughter=2222
 const ACCOUNTS=[
-  {id:"parent", name:"Parents",  emoji:"👨‍👩‍👧‍👦", pin:"2931", role:"parent"},
-  {id:"son",    name:"Son",      emoji:"👦",        pin:"1111", role:"kid"},
-  {id:"daughter",name:"Daughter",emoji:"👧",        pin:"2222", role:"kid"},
+  {id:"parent",  name:"Parents",  emoji:"👨‍👩‍👧‍👦", pinHash:"7fadf2085180f16ae8d5e4f25d188f9f7f1e4f5ccd6b8d4d7e3a6b7c3e9f1d2", role:"parent"},
+  {id:"son",     name:"Son",      emoji:"👦",       pinHash:"0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c", role:"kid"},
+  {id:"daughter",name:"Daughter", emoji:"👧",       pinHash:"0ffe1abd1a08215353c233d6e009613e95eec4253832a761af28ff37ac5a150c", role:"kid"},
 ];
 
+// ── Modes ─────────────────────────────────────────────────────────────────────
 const MODES=[
   {id:"en-pl",label:"English → Polish",  from:"en",to:"pl",fromLabel:"English", toLabel:"Polish"},
   {id:"pl-en",label:"Polish → English",  from:"pl",to:"en",fromLabel:"Polish",  toLabel:"English"},
@@ -36,23 +44,25 @@ const MODES=[
   {id:"ru-pl",label:"Russian → Polish",  from:"ru",to:"pl",fromLabel:"Russian", toLabel:"Polish"},
 ];
 
+// ── Static data ───────────────────────────────────────────────────────────────
+const DOMAINS=["Animals","Food","Colors","School","Home","Nature","Numbers","Body","Clothes","Other"];
+const GOAL_COLORS=["#2d6a4f","#1565c0","#6a1b9a","#c62828","#e65100","#00838f","#558b2f","#c2185b"];
+
 const DEFAULT_WORDS=[
-  {id:1,en:"cat",   ru:"кошка",   pl:"kot",     domain:"Animals"},
-  {id:2,en:"dog",   ru:"собака",  pl:"pies",    domain:"Animals"},
-  {id:3,en:"apple", ru:"яблоко",  pl:"jabłko",  domain:"Food"},
-  {id:4,en:"bread", ru:"хлеб",    pl:"chleb",   domain:"Food"},
-  {id:5,en:"red",   ru:"красный", pl:"czerwony",domain:"Colors"},
+  {id:1,en:"cat",   ru:"кошка",   pl:"kot",      domain:"Animals"},
+  {id:2,en:"dog",   ru:"собака",  pl:"pies",     domain:"Animals"},
+  {id:3,en:"apple", ru:"яблоко",  pl:"jabłko",   domain:"Food"},
+  {id:4,en:"bread", ru:"хлеб",    pl:"chleb",    domain:"Food"},
+  {id:5,en:"red",   ru:"красный", pl:"czerwony", domain:"Colors"},
   {id:6,en:"blue",  ru:"синий",   pl:"niebieski",domain:"Colors"},
-  {id:7,en:"book",  ru:"книга",   pl:"książka", domain:"School"},
-  {id:8,en:"pencil",ru:"карандаш",pl:"ołówek",  domain:"School"},
+  {id:7,en:"book",  ru:"книга",   pl:"książka",  domain:"School"},
+  {id:8,en:"pencil",ru:"карандаш",pl:"ołówek",   domain:"School"},
 ];
 
 const DEFAULT_GOALS=[
-  {id:1,name:"Son",      daily:10,color:"#1565c0",active:true},
-  {id:2,name:"Daughter", daily:10,color:"#c2185b",active:true},
+  {id:1,name:"Son",     daily:10,color:"#1565c0",active:true},
+  {id:2,name:"Daughter",daily:10,color:"#c2185b",active:true},
 ];
-
-const DOMAINS=["Animals","Food","Colors","School","Home","Nature","Numbers","Body","Clothes","Other"];
 
 const WORD_SETS={
   "Basic Animals":[{en:"horse",ru:"лошадь",pl:"koń",domain:"Animals"},{en:"rabbit",ru:"кролик",pl:"królik",domain:"Animals"},{en:"fish",ru:"рыба",pl:"ryba",domain:"Animals"},{en:"bird",ru:"птица",pl:"ptak",domain:"Animals"},{en:"cow",ru:"корова",pl:"krowa",domain:"Animals"}],
@@ -64,51 +74,53 @@ const WORD_SETS={
   "Transport":[{en:"car",ru:"машина",pl:"samochód",domain:"Other"},{en:"bus",ru:"автобус",pl:"autobus",domain:"Other"},{en:"train",ru:"поезд",pl:"pociąg",domain:"Other"},{en:"bicycle",ru:"велосипед",pl:"rower",domain:"Other"},{en:"plane",ru:"самолёт",pl:"samolot",domain:"Other"},{en:"boat",ru:"лодка",pl:"łódka",domain:"Other"},{en:"tram",ru:"трамвай",pl:"tramwaj",domain:"Other"}],
   "Weather":[{en:"sun",ru:"солнце",pl:"słońce",domain:"Nature"},{en:"rain",ru:"дождь",pl:"deszcz",domain:"Nature"},{en:"snow",ru:"снег",pl:"śnieg",domain:"Nature"},{en:"wind",ru:"ветер",pl:"wiatr",domain:"Nature"},{en:"cloud",ru:"облако",pl:"chmura",domain:"Nature"},{en:"storm",ru:"гроза",pl:"burza",domain:"Nature"},{en:"fog",ru:"туман",pl:"mgła",domain:"Nature"}],
   "Nature":[{en:"tree",ru:"дерево",pl:"drzewo",domain:"Nature"},{en:"flower",ru:"цветок",pl:"kwiat",domain:"Nature"},{en:"river",ru:"река",pl:"rzeka",domain:"Nature"},{en:"mountain",ru:"гора",pl:"góra",domain:"Nature"},{en:"forest",ru:"лес",pl:"las",domain:"Nature"},{en:"sea",ru:"море",pl:"morze",domain:"Nature"},{en:"grass",ru:"трава",pl:"trawa",domain:"Nature"}],
-  "Sports & Hobbies":[{en:"football",ru:"футбол",pl:"piłka nożna",domain:"Other"},{en:"swimming",ru:"плавание",pl:"pływanie",domain:"Other"},{en:"running",ru:"бег",pl:"bieganie",domain:"Other"},{en:"dancing",ru:"танцы",pl:"taniec",domain:"Other"},{en:"drawing",ru:"rysowanie",pl:"rysowanie",domain:"Other"},{en:"reading",ru:"чтение",pl:"czytanie",domain:"Other"},{en:"singing",ru:"пение",pl:"śpiewanie",domain:"Other"}],
+  "Sports & Hobbies":[{en:"football",ru:"футбол",pl:"piłka nożna",domain:"Other"},{en:"swimming",ru:"плавание",pl:"pływanie",domain:"Other"},{en:"running",ru:"бег",pl:"bieganie",domain:"Other"},{en:"dancing",ru:"танцы",pl:"taniec",domain:"Other"},{en:"drawing",ru:"рисование",pl:"rysowanie",domain:"Other"},{en:"reading",ru:"чтение",pl:"czytanie",domain:"Other"},{en:"singing",ru:"пение",pl:"śpiewanie",domain:"Other"}],
   "House & Furniture":[{en:"chair",ru:"стул",pl:"krzesło",domain:"Home"},{en:"table",ru:"стол",pl:"stół",domain:"Home"},{en:"bed",ru:"кровать",pl:"łóżko",domain:"Home"},{en:"window",ru:"окно",pl:"okno",domain:"Home"},{en:"door",ru:"дверь",pl:"drzwi",domain:"Home"},{en:"sofa",ru:"диван",pl:"sofa",domain:"Home"},{en:"kitchen",ru:"кухня",pl:"kuchnia",domain:"Home"},{en:"bathroom",ru:"ванная",pl:"łazienka",domain:"Home"}],
   "Colors":[{en:"green",ru:"зелёный",pl:"zielony",domain:"Colors"},{en:"yellow",ru:"жёлтый",pl:"żółty",domain:"Colors"},{en:"white",ru:"белый",pl:"biały",domain:"Colors"},{en:"black",ru:"чёрный",pl:"czarny",domain:"Colors"},{en:"pink",ru:"розовый",pl:"różowy",domain:"Colors"}],
 };
 
-const GOAL_COLORS=["#2d6a4f","#1565c0","#6a1b9a","#c62828","#e65100","#00838f","#558b2f","#c2185b"];
+// ── Storage helpers ───────────────────────────────────────────────────────────
 const todayKey=()=>new Date().toISOString().slice(0,10);
-
-const load=()=>{
-  try{return{
-    words:        JSON.parse(localStorage.getItem("vw")||"null")||DEFAULT_WORDS,
-    progress:     JSON.parse(localStorage.getItem("vp")||"{}"),
-    goals:        JSON.parse(localStorage.getItem("vg2")||"null")||DEFAULT_GOALS,
-    activeGoalId: parseInt(localStorage.getItem("vag")||"1"),
-    savedAccountId: localStorage.getItem("vaccount")||null,
-  };}catch{return{words:DEFAULT_WORDS,progress:{},goals:DEFAULT_GOALS,activeGoalId:1,savedAccountId:null};}
+const ls={
+  get:(k,fb)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):fb;}catch{return fb;}},
+  set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch{}},
+  del:(k)=>{try{localStorage.removeItem(k);}catch{}},
 };
 
+// ── Styles ────────────────────────────────────────────────────────────────────
 const S={
   wrap:{maxWidth:680,margin:"0 auto",padding:"1rem"},
   card:{background:"#fff",borderRadius:14,border:"1px solid #e0e0e0",padding:"1.25rem",marginBottom:"1rem"},
   btn:(bg="#2d6a4f",light=false)=>({padding:"8px 18px",borderRadius:9,border:"none",cursor:"pointer",fontSize:13,fontWeight:500,background:light?"#eaf4ee":bg,color:light?bg:"#fff"}),
-  input:{padding:"8px 11px",borderRadius:8,border:"1px solid #ccc",fontSize:13,width:"100%"},
-  label:{fontSize:11,color:"#888",marginBottom:3,display:"block",fontWeight:600,letterSpacing:.4,textTransform:"uppercase"},
+  inp:{padding:"8px 11px",borderRadius:8,border:"1px solid #ccc",fontSize:13,width:"100%"},
+  lbl:{fontSize:11,color:"#888",marginBottom:3,display:"block",fontWeight:600,letterSpacing:.4,textTransform:"uppercase"},
   sel:{padding:"7px 10px",borderRadius:8,border:"1px solid #ccc",fontSize:13,background:"#fff"},
   tag:(c="#2d6a4f")=>({fontSize:11,fontWeight:600,background:c+"22",color:c,padding:"2px 9px",borderRadius:20,display:"inline-block"}),
-  tabBar:{display:"flex",gap:0,marginBottom:"1.25rem",borderBottom:"2px solid #e8f5ee",flexWrap:"wrap"},
+  tabs:{display:"flex",gap:0,marginBottom:"1.25rem",borderBottom:"2px solid #e8f5ee",flexWrap:"wrap"},
   tab:(a)=>({padding:"8px 14px",border:"none",cursor:"pointer",fontSize:12,fontWeight:500,background:"none",borderBottom:a?"3px solid #2d6a4f":"3px solid transparent",color:a?"#2d6a4f":"#999",marginBottom:-2,whiteSpace:"nowrap"}),
-  notice:(c="green")=>({fontSize:12,padding:"8px 12px",borderRadius:8,background:c==="green"?"#e8f5ee":c==="red"?"#fdeaea":"#fff8e1",color:c==="green"?"#2d6a4f":c==="red"?"#c0392b":"#b7791f",marginTop:8}),
+  notice:(c="green")=>({fontSize:12,padding:"8px 12px",borderRadius:8,marginTop:8,
+    background:c==="green"?"#e8f5ee":c==="red"?"#fdeaea":"#fff8e1",
+    color:c==="green"?"#2d6a4f":c==="red"?"#c0392b":"#b7791f"}),
 };
 
+// ── PreviewTable ──────────────────────────────────────────────────────────────
 function PreviewTable({words,onConfirm,onDiscard}){
   return(
     <div>
       <div style={{background:"#f9fafb",borderRadius:10,padding:"10px 14px",marginBottom:10,maxHeight:220,overflowY:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
           <thead><tr style={{color:"#888",textAlign:"left"}}>
-            <th style={{padding:"3px 8px 6px 0"}}>English</th><th style={{padding:"3px 8px 6px 0"}}>Russian</th><th style={{padding:"3px 8px 6px 0"}}>Polish</th><th style={{padding:"3px 0 6px 0"}}>Domain</th>
+            <th style={{padding:"3px 8px 6px 0"}}>English</th>
+            <th style={{padding:"3px 8px 6px 0"}}>Russian</th>
+            <th style={{padding:"3px 8px 6px 0"}}>Polish</th>
+            <th style={{padding:"3px 0 6px 0"}}>Domain</th>
           </tr></thead>
           <tbody>{words.map((w,i)=>(
             <tr key={i} style={{borderTop:"1px solid #f0f0f0"}}>
               <td style={{padding:"3px 8px 3px 0",fontWeight:600,color:"#1b4332"}}>{w.en}</td>
               <td style={{padding:"3px 8px 3px 0",color:"#555"}}>{w.ru}</td>
               <td style={{padding:"3px 8px 3px 0",color:"#555"}}>{w.pl}</td>
-              <td style={{padding:"3px 0"}}><span style={S.tag()}>{w.domain}</span></td>
+              <td><span style={S.tag()}>{w.domain}</span></td>
             </tr>
           ))}</tbody>
         </table>
@@ -121,16 +133,27 @@ function PreviewTable({words,onConfirm,onDiscard}){
   );
 }
 
-// ── Login Screen ─────────────────────────────────────────────────────────────
+// ── LoginScreen ───────────────────────────────────────────────────────────────
 function LoginScreen({onLogin}){
   const [selected,setSelected]=useState(null);
   const [pin,setPin]=useState("");
   const [err,setErr]=useState(false);
-  const submit=()=>{
-    if(!selected)return;
-    if(selected.pin===pin){onLogin(selected);setErr(false);}
-    else{setErr(true);setPin("");}
+  const [busy,setBusy]=useState(false);
+
+  const submit=async()=>{
+    if(!selected||!pin.trim())return;
+    setBusy(true);
+    const hash=await sha256(pin);
+    if(hash===selected.pinHash){
+      setErr(false);
+      onLogin(selected);
+    } else {
+      setErr(true);
+      setPin("");
+    }
+    setBusy(false);
   };
+
   return(
     <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#f0f7f4"}}>
       <div style={{width:"100%",maxWidth:420,padding:"1rem"}}>
@@ -156,13 +179,15 @@ function LoginScreen({onLogin}){
             <div style={{fontSize:14,fontWeight:500,marginBottom:10,color:"#555"}}>
               Enter PIN for <strong>{selected.name}</strong>
             </div>
-            <input style={{...S.input,fontSize:20,textAlign:"center",letterSpacing:8}} type="password"
-              value={pin} maxLength={6} placeholder="••••"
-              onChange={e=>setPin(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()}
+            <input style={{...S.inp,fontSize:20,textAlign:"center",letterSpacing:8}}
+              type="password" value={pin} maxLength={6} placeholder="••••"
+              onChange={e=>setPin(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&submit()}
               autoFocus/>
             {err&&<div style={S.notice("red")}>Incorrect PIN — try again</div>}
-            <button style={{...S.btn(),width:"100%",marginTop:12,padding:"10px"}} onClick={submit}>
-              Sign in as {selected.name}
+            <button style={{...S.btn(),width:"100%",marginTop:12,padding:"10px",opacity:busy?.6:1}}
+              onClick={submit} disabled={busy}>
+              {busy?"Checking…":"Sign in as "+selected.name}
             </button>
           </div>
         )}
@@ -171,34 +196,43 @@ function LoginScreen({onLogin}){
   );
 }
 
-// ── Main App ─────────────────────────────────────────────────────────────────
+// ── App root ──────────────────────────────────────────────────────────────────
 function App(){
-  const init=load();
-  const savedAcc=ACCOUNTS.find(a=>a.id===init.savedAccountId)||null;
+  const savedId=ls.get("vaccount",null);
+  const savedAcc=ACCOUNTS.find(a=>a.id===savedId)||null;
   const [account,setAccount]=useState(savedAcc);
-  const login=acc=>{
-    setAccount(acc);
-    try{localStorage.setItem("vaccount",acc.id);}catch{}
-  };
-  const logout=()=>{
-    setAccount(null);
-    try{localStorage.removeItem("vaccount");}catch{}
-  };
-  if(!account) return <LoginScreen onLogin={login}/>;
+
+  const login=acc=>{setAccount(acc);ls.set("vaccount",acc.id);};
+  const logout=()=>{setAccount(null);ls.del("vaccount");};
+
+  if(!account)return <LoginScreen onLogin={login}/>;
   return <Main account={account} onLogout={logout}/>;
 }
 
+// ── Main ──────────────────────────────────────────────────────────────────────
 function Main({account,onLogout}){
-  const init=load();
-  const [words,setWordsRaw]=useState(init.words);
-  const [progress,setProgressRaw]=useState(init.progress);
-  const [goals,setGoalsRaw]=useState(init.goals);
-  const [activeGoalId,setActiveGoalIdRaw]=useState(init.activeGoalId);
-
+  const [words,setWordsRaw]=useState(()=>ls.get("vw",DEFAULT_WORDS));
+  const [progress,setProgressRaw]=useState(()=>ls.get("vp",{}));
+  const [goals,setGoalsRaw]=useState(()=>ls.get("vg2",DEFAULT_GOALS));
+  const [activeGoalId,setActiveGoalIdRaw]=useState(()=>ls.get("vag",1));
   const [view,setView]=useState("home");
   const [parentTab,setParentTab]=useState("add");
 
-  // practice
+  const setW=w=>{setWordsRaw(w);ls.set("vw",w);};
+  const setP=p=>{setProgressRaw(p);ls.set("vp",p);};
+  const setGoals=g=>{setGoalsRaw(g);ls.set("vg2",g);};
+  const setActiveGoalId=id=>{setActiveGoalIdRaw(id);ls.set("vag",id);};
+
+  const isParent=account.role==="parent";
+  const activeGoals=goals.filter(g=>g.active!==false);
+  const activeGoal=goals.find(g=>g.id===activeGoalId)||(activeGoals[0]||goals[0]);
+  const todayProg=progress[todayKey()]||{};
+  const todayCount=todayProg[activeGoal?.id]||0;
+  const pct=Math.min(100,Math.round(todayCount/(activeGoal?.daily||10)*100));
+  const goalDone=todayCount>=(activeGoal?.daily||10);
+  const usedDomains=["All",...Array.from(new Set(words.map(w=>w.domain)))];
+
+  // practice state
   const [mode,setMode]=useState(MODES[0]);
   const [domain,setDomain]=useState("All");
   const [quiz,setQuiz]=useState(null);
@@ -206,199 +240,178 @@ function Main({account,onLogout}){
   const [feedback,setFeedback]=useState(null);
   const [attempts,setAttempts]=useState(0);
 
-  // word mgmt
-  const [nw,setNw]=useState({en:"",ru:"",pl:"",domain:"Animals"});
-  const [nwErr,setNwErr]=useState("");
-  const [importSet,setImportSet]=useState(Object.keys(WORD_SETS)[0]);
-  const [importMsg,setImportMsg]=useState("");
-  const [aiTopic,setAiTopic]=useState("");
-  const [aiLoading,setAiLoading]=useState(false);
-  const [aiMsg,setAiMsg]=useState("");
-  const [aiPreview,setAiPreview]=useState([]);
-  const [txtPreview,setTxtPreview]=useState([]);
-  const [txtMsg,setTxtMsg]=useState("");
-  const [txtDomain,setTxtDomain]=useState("Other");
-  const fileRef=useRef();
-  const [urlInput,setUrlInput]=useState("");
-  const [urlLoading,setUrlLoading]=useState(false);
-  const [urlMsg,setUrlMsg]=useState("");
-  const [urlPreview,setUrlPreview]=useState([]);
-  const [editWord,setEditWord]=useState(null);
-  const [filterDomain,setFilterDomain]=useState("All");
-
-  // goals mgmt
-  const [editingGoal,setEditingGoal]=useState(null);
-  const [importJsonMsg,setImportJsonMsg]=useState("");
-  const jsonFileRef=useRef();
-
-  const setW=w=>{setWordsRaw(w);try{localStorage.setItem("vw",JSON.stringify(w));}catch{}};
-  const setP=p=>{setProgressRaw(p);try{localStorage.setItem("vp",JSON.stringify(p));}catch{}};
-  const setGoals=g=>{setGoalsRaw(g);try{localStorage.setItem("vg2",JSON.stringify(g));}catch{}};
-  const setActiveGoalId=id=>{setActiveGoalIdRaw(id);try{localStorage.setItem("vag",String(id));}catch{}};
-
-  const activeGoals=goals.filter(g=>g.active!==false);
-  const activeGoal=goals.find(g=>g.id===activeGoalId)||(activeGoals[0]||goals[0]);
-  const todayProgress=progress[todayKey()]||{};
-  const todayCount=todayProgress[activeGoal?.id]||0;
-  const pct=Math.min(100,Math.round(todayCount/(activeGoal?.daily||10)*100));
-  const goalDone=todayCount>=(activeGoal?.daily||10);
-  const usedDomains=["All",...Array.from(new Set(words.map(w=>w.domain)))];
-
-  const recordCorrect=()=>{
-    const k=todayKey();const prev=progress[k]||{};
-    setP({...progress,[k]:{...prev,[activeGoal.id]:(prev[activeGoal.id]||0)+1}});
-  };
-
   const startQuiz=(d=domain,m=mode)=>{
-    const pool=d==="All"?words:words.filter(w=>w.domain===d);
+    const pool=(d==="All"?words:words.filter(w=>w.domain===d));
     if(!pool.length){setQuiz(null);return;}
     setQuiz(pool[Math.floor(Math.random()*pool.length)]);
     setAnswer("");setFeedback(null);setAttempts(0);
   };
-
   const checkAnswer=()=>{
     if(!quiz||!answer.trim())return;
     const ok=answer.trim().toLowerCase()===quiz[mode.to].toLowerCase().trim();
-    if(ok){setFeedback("correct");recordCorrect();}
-    else{setAttempts(a=>a+1);setFeedback("wrong");setAnswer("");}
+    if(ok){
+      setFeedback("correct");
+      const k=todayKey();const prev=progress[k]||{};
+      setP({...progress,[k]:{...prev,[activeGoal.id]:(prev[activeGoal.id]||0)+1}});
+    } else {setAttempts(a=>a+1);setFeedback("wrong");setAnswer("");}
   };
 
+  // word management
   const mergeWords=list=>{
     const ex=new Set(words.map(w=>w.en.toLowerCase()));
-    const toAdd=list.filter(w=>w.en&&!ex.has(w.en.toLowerCase()));
-    if(!toAdd.length)return 0;
-    setW([...words,...toAdd.map((w,i)=>({...w,id:Date.now()+i}))]);
-    return toAdd.length;
+    const add=list.filter(w=>w.en&&!ex.has(w.en.toLowerCase()));
+    if(!add.length)return 0;
+    setW([...words,...add.map((w,i)=>({...w,id:Date.now()+i}))]);
+    return add.length;
   };
 
-  const parseLinesIntoWords=rawText=>{
-    let text=rawText;
-    if(text.trimStart().startsWith("{\\rtf")){
-      text=text.replace(/\{\\rtf[\s\S]*?\\pard/,"").replace(/\{[^}]*\}/g,"").replace(/\\[a-z]+\-?\d*\s?/g,"").replace(/[{}\\]/g,"");
-    }
-    text=text.replace(/^#{1,6}\s+/gm,"").replace(/[*_`~]+/g,"").replace(/^\s*[-*+]\s+/gm,"").replace(/^\s*\d+\.\s+/gm,"");
-    const lines=text.split("\n").map(l=>l.trim()).filter(Boolean);
-    const parsed=[];const errors=[];
-    lines.forEach((line,i)=>{
-      const parts=line.split(/\t|  +/).map(p=>p.trim()).filter(Boolean);
-      if(parts.length>=3)parsed.push({en:parts[0],ru:parts[1],pl:parts[2],domain:txtDomain});
-      else if(parts.length>0)errors.push(i+1);
-    });
-    return{parsed,errors};
-  };
+  const [filterDomain,setFilterDomain]=useState("All");
+  const [editWord,setEditWord]=useState(null);
+  const deleteWord=id=>setW(words.filter(w=>w.id!==id));
+  const saveEdit=()=>{setW(words.map(w=>w.id===editWord.id?editWord:w));setEditWord(null);};
 
-  const handleTxtFile=e=>{
-    const file=e.target.files[0];if(!file)return;
-    setTxtMsg("Reading file…");
-    const reader=new FileReader();
-    reader.onerror=()=>setTxtMsg("Error reading file.");
-    reader.onload=ev=>{
-      try{
-        const{parsed,errors}=parseLinesIntoWords(ev.target.result);
-        if(!parsed.length){setTxtMsg("No valid lines found.");setTxtPreview([]);return;}
-        setTxtPreview([...parsed]);
-        setTxtMsg(errors.length?`Parsed ${parsed.length} words. Skipped lines: ${errors.join(", ")}.`:`Parsed ${parsed.length} words — review and confirm.`);
-      }catch(err){setTxtMsg("Parse error: "+err.message);}
-    };
-    reader.readAsText(file,"UTF-8");e.target.value="";
-  };
-
-  const generateWithAI=async()=>{
-    if(!aiTopic.trim())return;
-    setAiLoading(true);setAiMsg("");setAiPreview([]);
-    try{
-      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,
-          messages:[{role:"user",content:`Generate exactly 8 English vocabulary words on the topic: "${aiTopic}". For each word provide English, Russian translation, Polish translation, and a domain from: ${DOMAINS.join(", ")}.\nRespond ONLY with a raw JSON array, no markdown:\n[{"en":"word","ru":"слово","pl":"słowo","domain":"Category"}]`}]})});
-      const data=await res.json();
-      const text=data.content?.find(b=>b.type==="text")?.text||"";
-      const parsed=JSON.parse(text.replace(/```json|```/g,"").trim());
-      if(Array.isArray(parsed)&&parsed.length){setAiPreview(parsed);setAiMsg(`${parsed.length} words generated!`);}
-      else setAiMsg("Could not parse response. Try again.");
-    }catch{setAiMsg("Error. Please try again.");}
-    setAiLoading(false);
-  };
-
-  const extractFromUrl=async()=>{
-    if(!urlInput.trim())return;
-    setUrlLoading(true);setUrlMsg("Fetching and extracting words…");setUrlPreview([]);
-    try{
-      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:2000,tools:[{type:"web_search_20250305",name:"web_search"}],
-          messages:[{role:"user",content:`Visit this URL and extract all vocabulary words with English, Russian, and Polish translations: ${urlInput}\nIf translations are missing, generate them. Assign each word a domain from: ${DOMAINS.join(", ")}.\nRespond ONLY with a raw JSON array:\n[{"en":"word","ru":"перевод","pl":"tłumaczenie","domain":"Category"}]`}]})});
-      const data=await res.json();
-      const textBlock=data.content?.filter(b=>b.type==="text").map(b=>b.text).join("");
-      const match=textBlock.replace(/```json|```/g,"").trim().match(/\[[\s\S]*\]/);
-      if(!match)throw new Error();
-      const parsed=JSON.parse(match[0]);
-      if(Array.isArray(parsed)&&parsed.length){setUrlPreview(parsed);setUrlMsg(`Extracted ${parsed.length} words.`);}
-      else setUrlMsg("Could not extract words.");
-    }catch{setUrlMsg("Failed to extract. Make sure it's a vocabulary page.");}
-    setUrlLoading(false);
-  };
-
-  const exportJSON=()=>{
-    const data=JSON.stringify({words,goals,exportedAt:new Date().toISOString()},null,2);
-    const blob=new Blob([data],{type:"application/json"});
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement("a");a.href=url;a.download="wordwizard-backup.json";a.click();URL.revokeObjectURL(url);
-  };
-  const handleImportJSON=e=>{
-    const file=e.target.files[0];if(!file)return;
-    const reader=new FileReader();
-    reader.onload=ev=>{
-      try{
-        const data=JSON.parse(ev.target.result);
-        if(!Array.isArray(data.words))throw new Error();
-        setW(data.words);if(data.goals)setGoals(data.goals);
-        setImportJsonMsg(`Restored ${data.words.length} words!`);setTimeout(()=>setImportJsonMsg(""),4000);
-      }catch{setImportJsonMsg("Invalid backup file.");}
-    };
-    reader.readAsText(file);e.target.value="";
-  };
-
+  // add manual
+  const [nw,setNw]=useState({en:"",ru:"",pl:"",domain:"Animals"});
+  const [nwErr,setNwErr]=useState("");
   const addWord=()=>{
     if(!nw.en.trim()||!nw.ru.trim()||!nw.pl.trim()){setNwErr("Please fill all three fields.");return;}
     setW([...words,{...nw,id:Date.now(),en:nw.en.trim(),ru:nw.ru.trim(),pl:nw.pl.trim()}]);
     setNw({en:"",ru:"",pl:"",domain:nw.domain});setNwErr("");
   };
+
+  // word sets
+  const [importSet,setImportSet]=useState(Object.keys(WORD_SETS)[0]);
+  const [importMsg,setImportMsg]=useState("");
   const importWordSet=()=>{
     const n=mergeWords(WORD_SETS[importSet]);
-    if(!n){setImportMsg("All words already in your list.");return;}
-    setImportMsg(`Added ${n} words!`);setTimeout(()=>setImportMsg(""),3000);
+    setImportMsg(n?`Added ${n} words!`:"All words already in your list.");
+    setTimeout(()=>setImportMsg(""),3000);
   };
-  const deleteWord=id=>setW(words.filter(w=>w.id!==id));
-  const saveEdit=()=>{setW(words.map(w=>w.id===editWord.id?editWord:w));setEditWord(null);};
 
+  // txt upload
+  const fileRef=useRef();
+  const [txtDomain,setTxtDomain]=useState("Other");
+  const [txtPreview,setTxtPreview]=useState([]);
+  const [txtMsg,setTxtMsg]=useState("");
+  const parseTxt=raw=>{
+    let t=raw;
+    if(t.trimStart().startsWith("{\\rtf"))
+      t=t.replace(/\{\\rtf[\s\S]*?\\pard/,"").replace(/\{[^}]*\}/g,"").replace(/\\[a-z]+-?\d*\s?/g,"").replace(/[{}\\]/g,"");
+    t=t.replace(/^#{1,6}\s+/gm,"").replace(/[*_`~]+/g,"").replace(/^\s*[-*+]\s+/gm,"").replace(/^\s*\d+\.\s+/gm,"");
+    const parsed=[];const errors=[];
+    t.split("\n").map(l=>l.trim()).filter(Boolean).forEach((line,i)=>{
+      const parts=line.split(/\t| {2,}/).map(p=>p.trim()).filter(Boolean);
+      if(parts.length>=3)parsed.push({en:parts[0],ru:parts[1],pl:parts[2],domain:txtDomain});
+      else if(parts.length>0)errors.push(i+1);
+    });
+    return{parsed,errors};
+  };
+  const handleTxtFile=e=>{
+    const file=e.target.files[0];if(!file)return;
+    setTxtMsg("Reading…");
+    const r=new FileReader();
+    r.onload=ev=>{
+      const{parsed,errors}=parseTxt(ev.target.result);
+      if(!parsed.length){setTxtMsg("No valid lines found.");setTxtPreview([]);return;}
+      setTxtPreview([...parsed]);
+      setTxtMsg(errors.length?`Parsed ${parsed.length} words. Skipped lines: ${errors.join(", ")}.`:`Parsed ${parsed.length} words — review and confirm.`);
+    };
+    r.readAsText(file,"UTF-8");e.target.value="";
+  };
+
+  // url extract
+  const [urlInput,setUrlInput]=useState("");
+  const [urlLoading,setUrlLoading]=useState(false);
+  const [urlMsg,setUrlMsg]=useState("");
+  const [urlPreview,setUrlPreview]=useState([]);
+  const extractFromUrl=async()=>{
+    if(!urlInput.trim())return;
+    setUrlLoading(true);setUrlMsg("Fetching…");setUrlPreview([]);
+    try{
+      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:2000,
+          tools:[{type:"web_search_20250305",name:"web_search"}],
+          messages:[{role:"user",content:`Visit this URL and extract all vocabulary words with English, Russian and Polish translations: ${urlInput}\nAssign each word a domain from: ${DOMAINS.join(", ")}.\nRespond ONLY with a raw JSON array:\n[{"en":"word","ru":"слово","pl":"słowo","domain":"Category"}]`}]})});
+      const data=await res.json();
+      const txt=data.content?.filter(b=>b.type==="text").map(b=>b.text).join("");
+      const m=txt.replace(/```json|```/g,"").trim().match(/\[[\s\S]*\]/);
+      if(!m)throw new Error();
+      const parsed=JSON.parse(m[0]);
+      if(Array.isArray(parsed)&&parsed.length){setUrlPreview(parsed);setUrlMsg(`Extracted ${parsed.length} words.`);}
+      else setUrlMsg("Could not extract words.");
+    }catch{setUrlMsg("Failed. Make sure it's a vocabulary page.");}
+    setUrlLoading(false);
+  };
+
+  // AI generate
+  const [aiTopic,setAiTopic]=useState("");
+  const [aiLoading,setAiLoading]=useState(false);
+  const [aiMsg,setAiMsg]=useState("");
+  const [aiPreview,setAiPreview]=useState([]);
+  const generateAI=async()=>{
+    if(!aiTopic.trim())return;
+    setAiLoading(true);setAiMsg("");setAiPreview([]);
+    try{
+      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,
+          messages:[{role:"user",content:`Generate exactly 8 English vocabulary words on the topic: "${aiTopic}". Provide English, Russian, Polish and a domain from: ${DOMAINS.join(", ")}.\nRespond ONLY with a raw JSON array:\n[{"en":"word","ru":"слово","pl":"słowo","domain":"Category"}]`}]})});
+      const data=await res.json();
+      const txt=data.content?.find(b=>b.type==="text")?.text||"";
+      const parsed=JSON.parse(txt.replace(/```json|```/g,"").trim());
+      if(Array.isArray(parsed)&&parsed.length){setAiPreview(parsed);setAiMsg(`${parsed.length} words generated!`);}
+      else setAiMsg("Could not parse. Try again.");
+    }catch{setAiMsg("Error. Please try again.");}
+    setAiLoading(false);
+  };
+
+  // goals
+  const [editingGoal,setEditingGoal]=useState(null);
   const saveGoal=()=>{
-    if(!editingGoal||!editingGoal.name?.trim())return;
-    if(editingGoal.id==="new"){
-      setGoals([...goals,{...editingGoal,id:Date.now(),active:true}]);
-    }else{
-      setGoals(goals.map(g=>g.id===editingGoal.id?editingGoal:g));
-    }
+    if(!editingGoal?.name?.trim())return;
+    if(editingGoal.id==="new")setGoals([...goals,{...editingGoal,id:Date.now(),active:true}]);
+    else setGoals(goals.map(g=>g.id===editingGoal.id?editingGoal:g));
     setEditingGoal(null);
   };
   const deleteGoal=id=>{
     if(goals.length<=1)return;
-    const updated=goals.filter(g=>g.id!==id);
-    setGoals(updated);
-    if(activeGoalId===id)setActiveGoalId(updated[0].id);
+    const upd=goals.filter(g=>g.id!==id);
+    setGoals(upd);
+    if(activeGoalId===id)setActiveGoalId(upd[0].id);
   };
-  const toggleGoalActive=id=>{
-    const updated=goals.map(g=>g.id===id?{...g,active:g.active===false?true:false}:g);
-    setGoals(updated);
-    // if we deactivated the current active goal, switch to first active
-    const nowActive=updated.filter(g=>g.active!==false);
-    if(!nowActive.find(g=>g.id===activeGoalId)&&nowActive.length>0){
-      setActiveGoalId(nowActive[0].id);
+  const toggleGoal=id=>{
+    const upd=goals.map(g=>g.id===id?{...g,active:g.active===false}:g);
+    setGoals(upd);
+    if(!upd.find(g=>g.id===activeGoalId&&g.active!==false)){
+      const first=upd.find(g=>g.active!==false);
+      if(first)setActiveGoalId(first.id);
     }
   };
 
-  const isParent=account.role==="parent";
-  const navItems=isParent
-    ?["home","practice","words","parent"]
-    :["home","practice","words"];
+  // backup
+  const jsonFileRef=useRef();
+  const [backupMsg,setBackupMsg]=useState("");
+  const exportJSON=()=>{
+    const blob=new Blob([JSON.stringify({words,goals,exportedAt:new Date().toISOString()},null,2)],{type:"application/json"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");a.href=url;a.download="wordwizard-backup.json";a.click();URL.revokeObjectURL(url);
+  };
+  const handleImportJSON=e=>{
+    const file=e.target.files[0];if(!file)return;
+    const r=new FileReader();
+    r.onload=ev=>{
+      try{
+        const d=JSON.parse(ev.target.result);
+        if(!Array.isArray(d.words))throw new Error();
+        setW(d.words);if(d.goals)setGoals(d.goals);
+        setBackupMsg(`Restored ${d.words.length} words!`);setTimeout(()=>setBackupMsg(""),4000);
+      }catch{setBackupMsg("Invalid backup file.");}
+    };
+    r.readAsText(file);e.target.value="";
+  };
+
+  const navItems=isParent?["home","practice","words","parent"]:["home","practice","words"];
 
   return(
     <div style={S.wrap}>
@@ -406,18 +419,17 @@ function Main({account,onLogout}){
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"1.25rem",flexWrap:"wrap",gap:8}}>
         <div>
           <div style={{fontSize:20,fontWeight:700,color:"#2d6a4f"}}>🌟 Word Wizard</div>
-          <div style={{fontSize:12,color:"#aaa",display:"flex",alignItems:"center",gap:6}}>
+          <div style={{fontSize:12,color:"#aaa",display:"flex",alignItems:"center",gap:6,marginTop:2}}>
             {account.emoji} {account.name}
-            <button onClick={onLogout}
-              style={{marginLeft:4,background:"#fdeaea",border:"none",cursor:"pointer",color:"#c0392b",fontSize:11,
-                padding:"2px 8px",borderRadius:6,fontWeight:500}}>
+            <button onClick={onLogout} style={{background:"#fdeaea",border:"none",cursor:"pointer",color:"#c0392b",fontSize:11,padding:"2px 8px",borderRadius:6,fontWeight:500}}>
               🚪 Log out
             </button>
           </div>
         </div>
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
           {navItems.map(v=>(
-            <button key={v} style={{padding:"6px 13px",borderRadius:20,border:"none",cursor:"pointer",fontSize:12,fontWeight:500,background:view===v?"#2d6a4f":"#eaf4ee",color:view===v?"#fff":"#2d6a4f"}}
+            <button key={v} style={{padding:"6px 13px",borderRadius:20,border:"none",cursor:"pointer",fontSize:12,fontWeight:500,
+              background:view===v?"#2d6a4f":"#eaf4ee",color:view===v?"#fff":"#2d6a4f"}}
               onClick={()=>{setView(v);if(v==="practice")startQuiz();}}>
               {v==="home"?"🏠":v==="practice"?"✏️":v==="words"?"📚":"⚙️"} {v.charAt(0).toUpperCase()+v.slice(1)}
             </button>
@@ -460,7 +472,8 @@ function Main({account,onLogout}){
               </div>
             ))}
           </div>
-          <button style={{...S.btn(),width:"100%",padding:"13px",fontSize:15,borderRadius:13}} onClick={()=>{setView("practice");startQuiz();}}>Start Practice →</button>
+          <button style={{...S.btn(),width:"100%",padding:"13px",fontSize:15,borderRadius:13}}
+            onClick={()=>{setView("practice");startQuiz();}}>Start Practice →</button>
         </div>
       )}
 
@@ -486,35 +499,30 @@ function Main({account,onLogout}){
           </div>
           {quiz?(
             <div style={S.card}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
                 <span style={S.tag()}>{quiz.domain}</span>
                 <span style={{fontSize:11,color:"#aaa"}}>{mode.fromLabel} → {mode.toLabel}</span>
               </div>
               <div style={{fontSize:38,fontWeight:700,textAlign:"center",color:"#1b4332",margin:"1.25rem 0 .5rem"}}>{quiz[mode.from]}</div>
               <div style={{textAlign:"center",fontSize:13,color:"#aaa",marginBottom:"1.25rem"}}>Type the <strong>{mode.toLabel}</strong> translation</div>
               {feedback!=="correct"&&feedback!=="skipped"&&(
-                <input style={{...S.input,fontSize:20,textAlign:"center",padding:12,borderRadius:12,border:`2px solid ${feedback==="wrong"?"#e74c3c":"#ccc"}`}}
+                <input style={{...S.inp,fontSize:20,textAlign:"center",padding:12,borderRadius:12,
+                  border:`2px solid ${feedback==="wrong"?"#e74c3c":"#ccc"}`}}
                   value={answer} onChange={e=>setAnswer(e.target.value)}
-                  onKeyDown={e=>e.key==="Enter"&&checkAnswer()} autoFocus placeholder={`${mode.toLabel} word…`}/>
+                  onKeyDown={e=>e.key==="Enter"&&checkAnswer()} autoFocus placeholder={mode.toLabel+" word…"}/>
               )}
-              {feedback==="wrong"&&(
-                <div style={{textAlign:"center",marginTop:8,color:"#e74c3c",fontWeight:500,fontSize:14}}>
-                  ✗ Not quite — try again!{attempts>=2&&<span style={{color:"#aaa",fontSize:12}}> (or skip)</span>}
-                </div>
-              )}
-              {feedback==="correct"&&(
-                <div style={{textAlign:"center",padding:"1rem 0"}}>
-                  <div style={{fontSize:38,fontWeight:700,color:"#52b788",marginBottom:4}}>✓</div>
-                  <div style={{color:"#52b788",fontWeight:600,fontSize:16}}>Correct!</div>
-                  <div style={{color:"#aaa",fontSize:13,marginTop:4}}>{quiz[mode.from]} = {quiz[mode.to]}</div>
-                </div>
-              )}
-              {feedback==="skipped"&&(
-                <div style={{textAlign:"center",padding:"1rem 0"}}>
-                  <div style={{fontSize:13,color:"#888",marginBottom:4}}>The answer was:</div>
-                  <div style={{fontSize:28,fontWeight:700,color:"#e65100"}}>{quiz[mode.to]}</div>
-                </div>
-              )}
+              {feedback==="wrong"&&<div style={{textAlign:"center",marginTop:8,color:"#e74c3c",fontWeight:500,fontSize:14}}>
+                ✗ Not quite — try again!{attempts>=2&&<span style={{color:"#aaa",fontSize:12}}> (or skip)</span>}
+              </div>}
+              {feedback==="correct"&&<div style={{textAlign:"center",padding:"1rem 0"}}>
+                <div style={{fontSize:38,fontWeight:700,color:"#52b788"}}>✓</div>
+                <div style={{color:"#52b788",fontWeight:600,fontSize:16}}>Correct!</div>
+                <div style={{color:"#aaa",fontSize:13,marginTop:4}}>{quiz[mode.from]} = {quiz[mode.to]}</div>
+              </div>}
+              {feedback==="skipped"&&<div style={{textAlign:"center",padding:"1rem 0"}}>
+                <div style={{fontSize:13,color:"#888",marginBottom:4}}>The answer was:</div>
+                <div style={{fontSize:28,fontWeight:700,color:"#e65100"}}>{quiz[mode.to]}</div>
+              </div>}
               <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"center",flexWrap:"wrap"}}>
                 {!feedback&&<button style={S.btn()} onClick={checkAnswer}>Check</button>}
                 {feedback==="wrong"&&<button style={S.btn()} onClick={checkAnswer}>Try again</button>}
@@ -546,9 +554,9 @@ function Main({account,onLogout}){
               {editWord?.id===w.id?(
                 <div>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:6}}>
-                    <input style={S.input} value={editWord.en} onChange={e=>setEditWord({...editWord,en:e.target.value})} placeholder="English"/>
-                    <input style={S.input} value={editWord.ru} onChange={e=>setEditWord({...editWord,ru:e.target.value})} placeholder="Russian"/>
-                    <input style={S.input} value={editWord.pl} onChange={e=>setEditWord({...editWord,pl:e.target.value})} placeholder="Polish"/>
+                    <input style={S.inp} value={editWord.en} onChange={e=>setEditWord({...editWord,en:e.target.value})} placeholder="English"/>
+                    <input style={S.inp} value={editWord.ru} onChange={e=>setEditWord({...editWord,ru:e.target.value})} placeholder="Russian"/>
+                    <input style={S.inp} value={editWord.pl} onChange={e=>setEditWord({...editWord,pl:e.target.value})} placeholder="Polish"/>
                   </div>
                   <div style={{display:"flex",gap:6}}>
                     <select style={S.sel} value={editWord.domain} onChange={e=>setEditWord({...editWord,domain:e.target.value})}>
@@ -566,8 +574,8 @@ function Main({account,onLogout}){
                     <span style={{color:"#888",fontSize:13}}>{w.pl}</span>
                   </div>
                   <span style={S.tag()}>{w.domain}</span>
-                  {isParent&&<button style={{background:"none",border:"none",cursor:"pointer",color:"#bbb",fontSize:14}} onClick={()=>setEditWord(w)}>✏️</button>}
-                  {isParent&&<button style={{background:"none",border:"none",cursor:"pointer",color:"#e74c3c",fontSize:14}} onClick={()=>deleteWord(w.id)}>✕</button>}
+                  {isParent&&<button style={{background:"none",border:"none",cursor:"pointer",color:"#bbb"}} onClick={()=>setEditWord(w)}>✏️</button>}
+                  {isParent&&<button style={{background:"none",border:"none",cursor:"pointer",color:"#e74c3c"}} onClick={()=>deleteWord(w.id)}>✕</button>}
                 </div>
               )}
             </div>
@@ -578,12 +586,10 @@ function Main({account,onLogout}){
       {/* PARENT */}
       {view==="parent"&&isParent&&(
         <div>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"1rem"}}>
-            <div style={{fontSize:16,fontWeight:600,color:"#2d6a4f"}}>⚙️ Parent Panel</div>
-          </div>
-          <div style={S.tabBar}>
-            {[["add","➕ Manual"],["txt","📄 TXT/RTF/MD"],["url","🌐 From URL"],["sets","📦 Word sets"],["ai","🤖 AI"],["goals","🎯 Goals"],["backup","💾 Backup"]].map(([t,label])=>(
-              <button key={t} style={S.tab(parentTab===t)} onClick={()=>setParentTab(t)}>{label}</button>
+          <div style={{fontSize:16,fontWeight:600,color:"#2d6a4f",marginBottom:"1rem"}}>⚙️ Parent Panel</div>
+          <div style={S.tabs}>
+            {[["add","➕ Manual"],["txt","📄 File"],["url","🌐 URL"],["sets","📦 Sets"],["ai","🤖 AI"],["goals","🎯 Goals"],["backup","💾 Backup"]].map(([t,l])=>(
+              <button key={t} style={S.tab(parentTab===t)} onClick={()=>setParentTab(t)}>{l}</button>
             ))}
           </div>
 
@@ -591,17 +597,17 @@ function Main({account,onLogout}){
             <div style={S.card}>
               <div style={{fontWeight:600,marginBottom:14}}>Add a word manually</div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:10}}>
-                <div><label style={S.label}>English</label><input style={S.input} value={nw.en} onChange={e=>setNw({...nw,en:e.target.value})} placeholder="e.g. tree" onKeyDown={e=>e.key==="Enter"&&addWord()}/></div>
-                <div><label style={S.label}>Russian</label><input style={S.input} value={nw.ru} onChange={e=>setNw({...nw,ru:e.target.value})} placeholder="e.g. дерево" onKeyDown={e=>e.key==="Enter"&&addWord()}/></div>
-                <div><label style={S.label}>Polish</label><input style={S.input} value={nw.pl} onChange={e=>setNw({...nw,pl:e.target.value})} placeholder="e.g. drzewo" onKeyDown={e=>e.key==="Enter"&&addWord()}/></div>
+                <div><label style={S.lbl}>English</label><input style={S.inp} value={nw.en} onChange={e=>setNw({...nw,en:e.target.value})} placeholder="tree" onKeyDown={e=>e.key==="Enter"&&addWord()}/></div>
+                <div><label style={S.lbl}>Russian</label><input style={S.inp} value={nw.ru} onChange={e=>setNw({...nw,ru:e.target.value})} placeholder="дерево" onKeyDown={e=>e.key==="Enter"&&addWord()}/></div>
+                <div><label style={S.lbl}>Polish</label><input style={S.inp} value={nw.pl} onChange={e=>setNw({...nw,pl:e.target.value})} placeholder="drzewo" onKeyDown={e=>e.key==="Enter"&&addWord()}/></div>
               </div>
               <div style={{display:"flex",gap:10,alignItems:"flex-end"}}>
-                <div style={{flex:1}}><label style={S.label}>Domain</label>
+                <div style={{flex:1}}><label style={S.lbl}>Domain</label>
                   <select style={{...S.sel,width:"100%"}} value={nw.domain} onChange={e=>setNw({...nw,domain:e.target.value})}>
                     {DOMAINS.map(d=><option key={d}>{d}</option>)}
                   </select>
                 </div>
-                <button style={{...S.btn(),padding:"8px 24px"}} onClick={addWord}>Add word</button>
+                <button style={{...S.btn(),padding:"8px 24px"}} onClick={addWord}>Add</button>
               </div>
               {nwErr&&<div style={S.notice("red")}>{nwErr}</div>}
             </div>
@@ -609,12 +615,11 @@ function Main({account,onLogout}){
 
           {parentTab==="txt"&&(
             <div style={S.card}>
-              <div style={{fontWeight:600,marginBottom:6}}>Upload from file</div>
+              <div style={{fontWeight:600,marginBottom:6}}>Upload from file (TXT / RTF / MD)</div>
               <div style={{fontSize:12,color:"#888",marginBottom:12,lineHeight:1.7}}>
-                Supported: <strong>TXT, RTF, MD</strong>. Each line: <code style={{background:"#f0f7f0",padding:"1px 5px",borderRadius:4}}>English[TAB]Russian[TAB]Polish</code>
+                Each line: <code style={{background:"#f0f7f0",padding:"1px 5px",borderRadius:4}}>English[TAB]Russian[TAB]Polish</code>
               </div>
-              <div style={{marginBottom:10}}>
-                <label style={S.label}>Default domain</label>
+              <div style={{marginBottom:10}}><label style={S.lbl}>Default domain</label>
                 <select style={S.sel} value={txtDomain} onChange={e=>setTxtDomain(e.target.value)}>
                   {DOMAINS.map(d=><option key={d}>{d}</option>)}
                 </select>
@@ -622,32 +627,45 @@ function Main({account,onLogout}){
               <input ref={fileRef} type="file" accept=".txt,.rtf,.md,.markdown" style={{display:"none"}} onChange={handleTxtFile}/>
               <button style={S.btn()} onClick={()=>fileRef.current.click()}>📄 Choose file</button>
               {txtMsg&&<div style={S.notice(txtMsg.includes("Parsed")||txtMsg.includes("Added")?"green":"red")}>{txtMsg}</div>}
-              {txtPreview.length>0&&<div style={{marginTop:12}}><PreviewTable words={txtPreview} onConfirm={()=>{const n=mergeWords([...txtPreview]);setTxtMsg(`Added ${n} words!`);setTxtPreview([]);}} onDiscard={()=>{setTxtPreview([]);setTxtMsg("");}}/></div>}
+              {txtPreview.length>0&&<div style={{marginTop:12}}>
+                <PreviewTable words={txtPreview}
+                  onConfirm={()=>{const n=mergeWords([...txtPreview]);setTxtMsg(`Added ${n} words!`);setTxtPreview([]);}}
+                  onDiscard={()=>{setTxtPreview([]);setTxtMsg("");}}/>
+              </div>}
             </div>
           )}
 
           {parentTab==="url"&&(
             <div style={S.card}>
               <div style={{fontWeight:600,marginBottom:6}}>Extract words from a URL</div>
-              <div style={{fontSize:12,color:"#888",marginBottom:12}}>Paste any vocabulary page URL — AI fetches and extracts the words.</div>
-              <label style={S.label}>URL</label>
-              <input style={{...S.input,marginBottom:10}} value={urlInput} onChange={e=>setUrlInput(e.target.value)} placeholder="https://example.com/vocabulary-list" onKeyDown={e=>e.key==="Enter"&&extractFromUrl()}/>
-              <button style={{...S.btn(),opacity:urlLoading?.6:1}} onClick={extractFromUrl} disabled={urlLoading}>{urlLoading?"🔍 Extracting…":"🌐 Extract words"}</button>
+              <div style={{fontSize:12,color:"#888",marginBottom:12}}>Paste any vocabulary page URL — AI extracts the words automatically.</div>
+              <label style={S.lbl}>URL</label>
+              <input style={{...S.inp,marginBottom:10}} value={urlInput} onChange={e=>setUrlInput(e.target.value)}
+                placeholder="https://example.com/vocabulary-list" onKeyDown={e=>e.key==="Enter"&&extractFromUrl()}/>
+              <button style={{...S.btn(),opacity:urlLoading?.6:1}} onClick={extractFromUrl} disabled={urlLoading}>
+                {urlLoading?"🔍 Extracting…":"🌐 Extract words"}
+              </button>
               {urlMsg&&<div style={S.notice(urlMsg.includes("Extracted")||urlMsg.includes("Added")?"green":"red")}>{urlMsg}</div>}
-              {urlPreview.length>0&&<div style={{marginTop:12}}><PreviewTable words={urlPreview} onConfirm={()=>{const n=mergeWords([...urlPreview]);setUrlMsg(`Added ${n} words!`);setUrlPreview([]);setUrlInput("");}} onDiscard={()=>{setUrlPreview([]);setUrlMsg("");}}/></div>}
+              {urlPreview.length>0&&<div style={{marginTop:12}}>
+                <PreviewTable words={urlPreview}
+                  onConfirm={()=>{const n=mergeWords([...urlPreview]);setUrlMsg(`Added ${n} words!`);setUrlPreview([]);setUrlInput("");}}
+                  onDiscard={()=>{setUrlPreview([]);setUrlMsg("");}}/>
+              </div>}
             </div>
           )}
 
           {parentTab==="sets"&&(
             <div style={S.card}>
               <div style={{fontWeight:600,marginBottom:10}}>Import built-in word sets</div>
-              <label style={S.label}>Choose set</label>
+              <label style={S.lbl}>Choose set</label>
               <select style={{...S.sel,width:"100%",marginBottom:10}} value={importSet} onChange={e=>setImportSet(e.target.value)}>
                 {Object.keys(WORD_SETS).map(k=><option key={k}>{k}</option>)}
               </select>
               <div style={{background:"#f9fafb",borderRadius:10,padding:"10px 14px",marginBottom:12}}>
                 {WORD_SETS[importSet].map(w=>(
-                  <div key={w.en} style={{fontSize:13,padding:"3px 0"}}><strong>{w.en}</strong> — {w.ru} / {w.pl} <span style={{color:"#aaa",fontSize:11}}>({w.domain})</span></div>
+                  <div key={w.en} style={{fontSize:13,padding:"3px 0"}}>
+                    <strong>{w.en}</strong> — {w.ru} / {w.pl} <span style={{color:"#aaa",fontSize:11}}>({w.domain})</span>
+                  </div>
                 ))}
               </div>
               <button style={S.btn()} onClick={importWordSet}>Import these words</button>
@@ -658,12 +676,19 @@ function Main({account,onLogout}){
           {parentTab==="ai"&&(
             <div style={S.card}>
               <div style={{fontWeight:600,marginBottom:6}}>Generate words with AI</div>
-              <div style={{fontSize:12,color:"#888",marginBottom:12}}>Type any topic — AI generates 8 words with all three translations.</div>
-              <label style={S.label}>Topic</label>
-              <input style={{...S.input,marginBottom:10}} value={aiTopic} onChange={e=>setAiTopic(e.target.value)} placeholder="e.g. weather, sports, kitchen…" onKeyDown={e=>e.key==="Enter"&&generateWithAI()}/>
-              <button style={{...S.btn(),opacity:aiLoading?.6:1}} onClick={generateWithAI} disabled={aiLoading}>{aiLoading?"Generating…":"🤖 Generate 8 words"}</button>
+              <div style={{fontSize:12,color:"#888",marginBottom:12}}>Type any topic — AI generates 8 words with all 3 translations.</div>
+              <label style={S.lbl}>Topic</label>
+              <input style={{...S.inp,marginBottom:10}} value={aiTopic} onChange={e=>setAiTopic(e.target.value)}
+                placeholder="e.g. weather, sports, kitchen…" onKeyDown={e=>e.key==="Enter"&&generateAI()}/>
+              <button style={{...S.btn(),opacity:aiLoading?.6:1}} onClick={generateAI} disabled={aiLoading}>
+                {aiLoading?"Generating…":"🤖 Generate 8 words"}
+              </button>
               {aiMsg&&<div style={S.notice(aiMsg.includes("generated")||aiMsg.includes("Added")?"green":"red")}>{aiMsg}</div>}
-              {aiPreview.length>0&&<div style={{marginTop:12}}><PreviewTable words={aiPreview} onConfirm={()=>{const n=mergeWords([...aiPreview]);setAiMsg(`Added ${n} words!`);setAiPreview([]);setAiTopic("");}} onDiscard={()=>{setAiPreview([]);setAiMsg("");}}/></div>}
+              {aiPreview.length>0&&<div style={{marginTop:12}}>
+                <PreviewTable words={aiPreview}
+                  onConfirm={()=>{const n=mergeWords([...aiPreview]);setAiMsg(`Added ${n} words!`);setAiPreview([]);setAiTopic("");}}
+                  onDiscard={()=>{setAiPreview([]);setAiMsg("");}}/>
+              </div>}
             </div>
           )}
 
@@ -672,27 +697,28 @@ function Main({account,onLogout}){
               <div style={S.card}>
                 <div style={{fontWeight:600,marginBottom:14}}>Goals</div>
                 {goals.map(g=>{
-                  const isActive=g.active!==false;
+                  const active=g.active!==false;
                   return(
-                    <div key={g.id} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 0",borderBottom:"1px solid #f0f0f0",opacity:isActive?1:.5}}>
+                    <div key={g.id} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 0",borderBottom:"1px solid #f0f0f0",opacity:active?1:.5}}>
                       <div style={{width:14,height:14,borderRadius:"50%",background:g.color,flexShrink:0}}/>
                       <div style={{flex:1}}>
                         <span style={{fontWeight:500,fontSize:14}}>{g.name}</span>
                         <span style={{color:"#aaa",fontSize:12,marginLeft:8}}>{g.daily} words/day</span>
-                        {activeGoalId===g.id&&isActive&&<span style={{...S.tag(),marginLeft:8,fontSize:10}}>active today</span>}
-                        {!isActive&&<span style={{...S.tag("#888"),marginLeft:8,fontSize:10}}>inactive</span>}
+                        {activeGoalId===g.id&&active&&<span style={{...S.tag(),marginLeft:8,fontSize:10}}>active today</span>}
+                        {!active&&<span style={{...S.tag("#888"),marginLeft:8,fontSize:10}}>inactive</span>}
                       </div>
-                      <button title={isActive?"Deactivate":"Activate"}
-                        style={{...S.btn(isActive?"#52b788":"#aaa",false),fontSize:12,padding:"4px 10px",minWidth:80}}
-                        onClick={()=>toggleGoalActive(g.id)}>
-                        {isActive?"✓ Active":"○ Inactive"}
+                      <button style={{...S.btn(active?"#52b788":"#aaa"),fontSize:12,padding:"4px 10px",minWidth:80}}
+                        onClick={()=>toggleGoal(g.id)}>
+                        {active?"✓ Active":"○ Inactive"}
                       </button>
                       <button style={{...S.btn("#1565c0",true),fontSize:12,padding:"4px 10px"}} onClick={()=>setEditingGoal({...g})}>Edit</button>
-                      <button style={{...S.btn("#e74c3c",true),fontSize:12,padding:"4px 10px",background:"#fdeaea",color:"#c0392b"}} onClick={()=>deleteGoal(g.id)} disabled={goals.length<=1}>Delete</button>
+                      <button style={{background:"#fdeaea",color:"#c0392b",border:"none",cursor:"pointer",fontSize:12,padding:"4px 10px",borderRadius:9,fontWeight:500}}
+                        onClick={()=>deleteGoal(g.id)} disabled={goals.length<=1}>Delete</button>
                     </div>
                   );
                 })}
-                <button style={{...S.btn(),marginTop:14}} onClick={()=>setEditingGoal({id:"new",name:"",daily:10,color:GOAL_COLORS[goals.length%GOAL_COLORS.length],active:true})}>
+                <button style={{...S.btn(),marginTop:14}}
+                  onClick={()=>setEditingGoal({id:"new",name:"",daily:10,color:GOAL_COLORS[goals.length%GOAL_COLORS.length],active:true})}>
                   + Add goal
                 </button>
               </div>
@@ -700,15 +726,19 @@ function Main({account,onLogout}){
                 <div style={S.card}>
                   <div style={{fontWeight:600,marginBottom:14}}>{editingGoal.id==="new"?"New goal":"Edit goal"}</div>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-                    <div><label style={S.label}>Name</label><input style={S.input} value={editingGoal.name} onChange={e=>setEditingGoal({...editingGoal,name:e.target.value})} placeholder="e.g. Anna"/></div>
-                    <div><label style={S.label}>Daily goal</label><input style={S.input} type="number" min="1" max="200" value={editingGoal.daily} onChange={e=>setEditingGoal({...editingGoal,daily:parseInt(e.target.value)||10})}/></div>
+                    <div><label style={S.lbl}>Name</label>
+                      <input style={S.inp} value={editingGoal.name} onChange={e=>setEditingGoal({...editingGoal,name:e.target.value})} placeholder="e.g. Anna"/>
+                    </div>
+                    <div><label style={S.lbl}>Daily goal</label>
+                      <input style={S.inp} type="number" min="1" max="200" value={editingGoal.daily} onChange={e=>setEditingGoal({...editingGoal,daily:parseInt(e.target.value)||10})}/>
+                    </div>
                   </div>
-                  <div style={{marginBottom:14}}>
-                    <label style={S.label}>Color</label>
+                  <div style={{marginBottom:14}}><label style={S.lbl}>Color</label>
                     <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                       {GOAL_COLORS.map(c=>(
                         <div key={c} onClick={()=>setEditingGoal({...editingGoal,color:c})}
-                          style={{width:28,height:28,borderRadius:"50%",background:c,cursor:"pointer",border:editingGoal.color===c?"3px solid #333":"3px solid transparent"}}/>
+                          style={{width:28,height:28,borderRadius:"50%",background:c,cursor:"pointer",
+                            border:editingGoal.color===c?"3px solid #333":"3px solid transparent"}}/>
                       ))}
                     </div>
                   </div>
@@ -735,7 +765,7 @@ function Main({account,onLogout}){
                   <div style={{fontSize:12,color:"#888",marginBottom:10}}>Restore from a backup file. Replaces current word list.</div>
                   <input ref={jsonFileRef} type="file" accept=".json" style={{display:"none"}} onChange={handleImportJSON}/>
                   <button style={{...S.btn("#c0392b")}} onClick={()=>jsonFileRef.current.click()}>📥 Restore from backup</button>
-                  {importJsonMsg&&<div style={S.notice(importJsonMsg.includes("Restored")?"green":"red")}>{importJsonMsg}</div>}
+                  {backupMsg&&<div style={S.notice(backupMsg.includes("Restored")?"green":"red")}>{backupMsg}</div>}
                 </div>
               </div>
             </div>
